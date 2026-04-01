@@ -1,0 +1,24 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Artefactos
+outputs/*
+!outputs/.gitkeep
+
+# Datos opcionales pesados (descomenta si quieres ignorarlos)
+# data/raw/*
+# !data/raw/.gitkeep
+# data/interim/*
+# !data/interim/.gitkeep
+# data/processed/*
+# !data/processed/.gitkeep
