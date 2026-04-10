@@ -1,0 +1,163 @@
+﻿\documentclass[11pt,a4paper]{article}
+
+% ---------- Encoding and language ----------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+
+% ---------- Layout ----------
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{parskip}
+\setlength{\parindent}{0pt}
+
+% ---------- Math and symbols ----------
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{bm}
+
+% ---------- Tables and figures ----------
+\usepackage{booktabs}
+\usepackage{threeparttable}
+\usepackage{siunitx}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{float}
+\graphicspath{{figures/}}
+
+% ---------- Links ----------
+\usepackage[hidelinks]{hyperref}
+
+% ---------- Optional notes ----------
+\usepackage{enumitem}
+\usepackage{xcolor}
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+
+% ---------- Metadata ----------
+\title{Determinantes y pronostico de la variabilidad extrema del tipo de cambio\\
+\large Enfoque por percentiles de retorno con metodos de ML y BART}
+\author{Autor 1 \and Autor 2}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Este documento estudia los determinantes y la capacidad predictiva de la variabilidad extrema del tipo de cambio mediante percentiles de retornos condicionales. Se comparan metodos de aprendizaje de maquina con enfoques basados en Bayesian Additive Regression Trees (BART), enfatizando desempeno en cola izquierda y cola derecha de la distribucion de retornos.
+\end{abstract}
+
+\textbf{Palabras clave:} tipo de cambio, riesgo extremo, quantiles, machine learning, BART, tail risk.
+
+\textbf{Clasificacion JEL:} C53, F31, G17.
+
+\section{Introduccion}
+\todo{Motivacion macro-financiera y relevancia para politica economica y gestion de riesgo.}
+
+Preguntas guia:
+\begin{enumerate}[leftmargin=*]
+    \item Que variables explican mejor la dinamica de percentiles extremos de retorno cambiario?
+    \item Que metodo pronostica mejor la cola de la distribucion: ML lineal/no lineal o BART?
+    \item Como cambia la precision en horizontes de corto y mediano plazo?
+\end{enumerate}
+
+\section{Literatura relacionada}
+\todo{Resumen breve de literatura de tail forecasting en tipo de cambio y metodos no parametricos.}
+
+\section{Datos y variables}
+\subsection{Variable objetivo}
+Defina retornos logaritmicos como:
+\begin{equation}
+    r_{t+h} = 100\times\left(\log S_{t+h} - \log S_t\right),
+\end{equation}
+donde $S_t$ es el nivel del tipo de cambio nominal.
+
+\subsection{Medidas de variabilidad extrema}
+Para cada horizonte $h$, estime quantiles condicionales:
+\begin{equation}
+    Q_{\tau}(r_{t+h}\mid X_t),\quad \tau \in \{0.01,0.05,0.10,0.90,0.95,0.99\}.
+\end{equation}
+
+\subsection{Predictores}
+\todo{Describir bloques de variables: macro, financieras, globales, riesgo, liquidez, terminos de intercambio.}
+
+\section{Metodologia}
+\subsection{Modelos base}
+\begin{itemize}[leftmargin=*]
+    \item Benchmark lineal (AR, ARX, quantile regression).
+    \item Modelos ML (Random Forest, Gradient Boosting, XGBoost u otros).
+    \item BART para modelar no linealidades e interacciones.
+\end{itemize}
+
+\subsection{Esquema de entrenamiento y validacion}
+\todo{Ventana expandida o rodante, frecuencia de reentrenamiento y periodos de evaluacion out-of-sample.}
+
+\subsection{Metricas de evaluacion}
+Use funcion de perdida quantilica (pinball loss):
+\begin{equation}
+    L_{\tau}(u)=u\left(\tau-\mathbb{I}\{u<0\}\right),\quad u=r_{t+h}-\hat{Q}_{\tau,t+h}.
+\end{equation}
+
+Compare modelos con:
+\begin{itemize}[leftmargin=*]
+    \item Pinball loss promedio por $\tau$ y horizonte $h$.
+    \item Cobertura empirica de eventos extremos.
+    \item Tests de comparacion predictiva (por ejemplo, Diebold-Mariano).
+\end{itemize}
+
+\section{Resultados empiricos}
+\subsection{Desempeno agregado}
+\begin{table}[H]
+    \centering
+    \caption{Desempeno out-of-sample por modelo y percentil}
+    \label{tab:oos_summary}
+    \begin{threeparttable}
+    \begin{tabular}{lcccc}
+        \toprule
+        Modelo & $\tau=0.05$ & $\tau=0.10$ & $\tau=0.90$ & $\tau=0.95$ \\
+        \midrule
+        ARX-QR & -- & -- & -- & -- \\
+        RF-QR & -- & -- & -- & -- \\
+        GBM-QR & -- & -- & -- & -- \\
+        BART-QR & -- & -- & -- & -- \\
+        \bottomrule
+    \end{tabular}
+    \begin{tablenotes}
+    \small
+    \item Nota: Reemplace "--" con pinball loss promedio (menor es mejor).
+    \end{tablenotes}
+    \end{threeparttable}
+\end{table}
+
+\subsection{Episodios de estres}
+\begin{figure}[H]
+    \centering
+    \fbox{\parbox[c][0.30\textheight][c]{0.9\textwidth}{\centering
+    Inserte aqui la figura de quantiles pronosticados vs retornos observados}}
+    \caption{Quantiles pronosticados vs retornos observados en periodos de estres}
+    \label{fig:tail_ts}
+\end{figure}
+
+\subsection{Importancia de variables}
+\todo{Incluir SHAP, permutation importance o inclusion frequencies de BART.}
+
+\section{Robustez}
+\begin{itemize}[leftmargin=*]
+    \item Cambios de ventana de entrenamiento.
+    \item Diferentes definiciones de retornos (log/simple) y horizontes.
+    \item Submuestras por regimen de volatilidad.
+\end{itemize}
+
+\section{Conclusiones}
+\todo{Sintetizar determinantes principales, modelo ganador por cola, e implicaciones para politica y gestion de riesgo.}
+
+\appendix
+\section{Detalles adicionales}
+\todo{Hiperparametros, chequeos de estabilidad y tablas adicionales.}
+
+\begin{thebibliography}{99}
+\bibitem{bart_exchange_rate_placeholder}
+Autor(es) (Ano). Titulo del trabajo relacionado con BART y tipo de cambio. Revista/Working Paper.
+\end{thebibliography}
+
+\end{document}

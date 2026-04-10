@@ -1,0 +1,164 @@
+﻿\documentclass[aspectratio=169,10pt]{beamer}
+
+% ---------- Theme ----------
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{navigation symbols}{}
+
+% ---------- Language and fonts ----------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{lmodern}
+
+% ---------- Utilities ----------
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\graphicspath{{figures/}}
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+
+% ---------- Metadata ----------
+\title{Determinantes y forecasting de la variabilidad extrema del tipo de cambio}
+\subtitle{Percentiles de retorno con ML y BART}
+\author{Tu Nombre}
+\institute{Tu Institucion}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Motivacion}
+\begin{itemize}
+    \item El riesgo cambiario extremo afecta inflacion, balance sheets y estabilidad financiera.
+    \item Los modelos lineales suelen fallar en colas y durante cambios de regimen.
+    \item ML y BART pueden capturar no linealidades e interacciones relevantes.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Pregunta de investigacion}
+\begin{block}{Objetivo}
+Identificar determinantes y mejorar el pronostico de percentiles extremos de retornos del tipo de cambio.
+\end{block}
+
+\begin{itemize}
+    \item Que variables importan en cola izquierda ($\tau=0.05$) y derecha ($\tau=0.95$)?
+    \item Que metodo tiene mejor precision out-of-sample por horizonte?
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Datos y variable objetivo}
+\begin{itemize}
+    \item Frecuencia: \todo{diaria/semanal/mensual}.
+    \item Muestra: \todo{fecha inicio - fecha fin}.
+    \item Objetivo: $r_{t+h}=100(\log S_{t+h}-\log S_t)$.
+    \item Quantiles de interes: $\tau\in\{0.01,0.05,0.10,0.90,0.95,0.99\}$.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Variables explicativas}
+\begin{columns}[T]
+\column{0.5\textwidth}
+\textbf{Bloque domestico}
+\begin{itemize}
+    \item tasas de interes
+    \item inflacion esperada
+    \item actividad economica
+\end{itemize}
+
+\column{0.5\textwidth}
+\textbf{Bloque global/financiero}
+\begin{itemize}
+    \item VIX / estres financiero
+    \item terminos de intercambio
+    \item precio de commodities
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Metodologia}
+\begin{itemize}
+    \item Benchmarks: ARX-Quantile Regression.
+    \item ML: Random Forest, Gradient Boosting, XGBoost.
+    \item No parametrico Bayesiano: BART para quantiles/colas.
+    \item Evaluacion rolling/expanding window out-of-sample.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Metrica principal}
+\begin{equation*}
+L_{\tau}(u)=u\left(\tau-\mathbb{I}\{u<0\}\right),\quad u=r_{t+h}-\hat{Q}_{\tau,t+h}
+\end{equation*}
+
+\begin{itemize}
+    \item Menor pinball loss implica mejor pronostico por percentil.
+    \item Se complementa con cobertura de eventos extremos.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Resultados: desempeno por modelo}
+\begin{table}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Modelo & $\tau=0.05$ & $\tau=0.10$ & $\tau=0.90$ & $\tau=0.95$ \\
+\midrule
+ARX-QR & -- & -- & -- & -- \\
+RF-QR & -- & -- & -- & -- \\
+GBM-QR & -- & -- & -- & -- \\
+BART-QR & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{frame}
+
+\begin{frame}{Resultados: episodios extremos}
+\centering
+\fbox{\parbox[c][0.45\textheight][c]{0.9\textwidth}{\centering
+Inserte aqui la figura de quantiles pronosticados vs retornos observados}}
+
+\vspace{0.3cm}
+\small Quantiles pronosticados vs retornos observados.
+\end{frame}
+
+\begin{frame}{Interpretabilidad}
+\begin{itemize}
+    \item Importancia de variables por metodo (SHAP/permutation/BART inclusion frequency).
+    \item Cambios de importancia entre cola izquierda y derecha.
+    \item Implicaciones para monitoreo temprano de riesgo cambiario.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Robustez}
+\begin{itemize}
+    \item Distintas ventanas y horizontes de pronostico.
+    \item Submuestras por regimen de volatilidad.
+    \item Verificacion de estabilidad temporal del ranking de modelos.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Conclusiones}
+\begin{itemize}
+    \item \todo{Mensaje 1: principal determinante de cola extrema.}
+    \item \todo{Mensaje 2: metodo ganador por horizonte/percentil.}
+    \item \todo{Mensaje 3: uso practico para politica y gestion de riesgo.}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Proximos pasos}
+\begin{itemize}
+    \item Afinar hiperparametros y estimar incertidumbre de forecast.
+    \item Extender a panel de paises / multimoneda.
+    \item Integrar nowcasting de variables de alta frecuencia.
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\centering
+\Large Gracias
+\end{frame}
+
+\end{document}
