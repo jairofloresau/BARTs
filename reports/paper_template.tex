@@ -1,9 +1,11 @@
 ﻿\documentclass[11pt,a4paper]{article}
 
 % ---------- Encoding and language ----------
+
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{soul}
 
 % ---------- Layout ----------
 \usepackage[a4paper,margin=1in]{geometry}
@@ -34,39 +36,361 @@
 \newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
 
 % ---------- Metadata ----------
-\title{Determinantes y pronostico de la variabilidad extrema del tipo de cambio\\
-\large Enfoque por percentiles de retorno con metodos de ML y BART}
-\author{Sinthya \and Autor 2}
-\date{\today}
+\title{Pronóstico e Identificación de Determinantes de los Retornos Extremos del Tipo de Cambio en Perú: Un Enfoque BART}
+\author{Sinthya Bernabe Ortega}
+\date{22 de mayo 2026}
+
+
+
 
 \begin{document}
+
+\begin{titlepage}
+\centering
+
+\vspace*{2.5cm}
+
+{\bfseries\Large PONTIFICIA UNIVERSIDAD\\
+CATÓLICA DEL PERÚ\par}
+
+\vspace{0.7cm}
+
+{\bfseries\Large FACULTAD DE CIENCIAS SOCIALES\par}
+
+\vspace{1.5cm}
+
+\includegraphics[width=0.28\textwidth]{logo_pucp.jpg}
+
+\vspace{2cm}
+
+{\bfseries\large
+Pronóstico e Identificación de Determinantes de los Retornos Extremos \\
+del Tipo de Cambio en Perú: Un Enfoque BART
+\par}
+
+\vspace{0.8cm}
+
+{\large Bernabe Ortega, Sinthya \par}
+
+\vspace{0.6cm}
+
+{\large Código: 20222834\par}
+
+\vspace{0.5cm}
+
+{\large Profesor: Jairo Flores\par}
+
+\vspace{0.6cm}
+
+{\large Lima, 2026\par}
+
+\end{titlepage}
 
 \maketitle
 
 \begin{abstract}
-Este documento estudia los determinantes y la capacidad predictiva de la variabilidad extrema del tipo de cambio mediante percentiles de retornos condicionales. Se comparan metodos de aprendizaje de maquina con enfoques basados en Bayesian Additive Regression Trees (BART), enfatizando desempeno en cola izquierda y cola derecha de la distribucion de retornos.
+Este documento estudia los determinantes y la capacidad predictiva de la variabilidad extrema del tipo de cambio nominal sol/dólar estimando los percentiles extremos de su distribución condicional de retornos. Se propone un enfoque basado en Árboles de Regresión Aditivos Bayesianos (BART) como metodología principal de predicción, comparándolo con métodos de referencia como la caminata aleatoria, la regresión cuantílica lineal y el Quantile Random Forest. Como predictores se incorporan los factores identificados por la literatura internacional: riesgo sistémico global, condiciones financieras de Estados Unidos, política monetaria de la Reserva Federal, diferencial de tasas de interés, precios de materias primas, incertidumbre política e intervención cambiaria del BCRP. Se argumenta que BART es especialmente adecuado para este problema porque captura no linealidades e interacciones entre variables sin necesidad de especificarlas a priori, y porque provee medidas de incertidumbre bayesiana sobre las predicciones de cola, superando la principal limitación de la regresión cuantílica lineal predominante en la literatura existente. El estudio contribuye a llenar un vacío doble en la literatura: ningún trabajo previo analiza el riesgo de cola del tipo de cambio peruano de forma específica, ni aplica BART a una moneda emergente de América Latina.
 \end{abstract}
 
-\textbf{Palabras clave:} tipo de cambio, riesgo extremo, quantiles, machine learning, BART, tail risk.
+
+% \textbf{Palabras clave:} tipo de cambio, riesgo extremo, quantiles, machine learning, BART, tail risk.
 
 \textbf{Clasificacion JEL:} C53, F31, G17.
 
 \section{Introduccion}
-\todo{Motivacion macro-financiera y relevancia para politica economica y gestion de riesgo.}
 
-Preguntas guia:
-\begin{enumerate}[leftmargin=*]
-    \item Que variables explican mejor la dinamica de percentiles extremos de retorno cambiario?
-    \item Que metodo pronostica mejor la cola de la distribucion: ML lineal/no lineal o BART?
-    \item Como cambia la precision en horizontes de corto y mediano plazo?
-\end{enumerate}
+% \todo{Motivacion macro-financiera y relevancia para politica economica y gestion de riesgo.}
 
-\section{Literatura relacionada}
-\todo{Resumen breve de literatura de tail forecasting en tipo de cambio y metodos no parametricos.}
+% \todo{Explicar el tema: Qué realiza tu paper?; cómo? con qué datos? y resultados!. }
+
+% \todo{Contribución}
+
+% \todo{En la sección 2 se muestra el marco teórico.......}
+
+En las últimas décadas, el tipo de cambio sol/dólar en el Perú ha experimentado episodios de volatilidad significativa impulsados tanto por choques externos, como variaciones en los precios de las materias primas y cambios en la política monetaria de la Reserva Federal, como a factores internos, entre ellos la incertidumbre política y los conflictos sociales. Si bien el Banco Central de Reserva del Perú (BCRP) interviene activamente en el mercado cambiario para moderar estas oscilaciones, los denominados eventos de cola, movimientos extremos e inesperados del tipo de cambio, continúan representando un desafío para la estabilidad macroeconómica y financiera del país.
+
+La mayoría de los modelos econométricos tradicionales centrados en estimar el comportamiento promedio de las variables, presentan limitaciones estructurales para capturar y anticipar estos riesgos extremos. En este contexto, comprender la probabilidad de depreciaciones o apreciaciones abruptas del sol resulta fundamental para una amplia gama de agentes económicos: importadores, exportadores, inversionistas y el propio BCRP, quienes deben tomar decisiones en entornos de elevada incertidumbre. 
+Esta necesidad adquiere especial relevancia en la coyuntura reciente, caracterizada por múltiples fuentes de riesgo convergentes: la incertidumbre política asociada al ciclo electoral, disrupciones internas como la interrupción del transporte de gas desde Cajamarca, y choques externos como el alza en los precios del petróleo en el marco del conflicto entre Estados Unidos, Israel e Irán, así como la permanente influencia de las decisiones de política monetaria de la Reserva Federal sobre los mercados financieros globales. 
+
+Paralelamente, el avance acelerado de la inteligencia artificial y el aprendizaje automático, hace necesario incorporar metodologías innovadoras para lograr un análisis más preciso de variables macrofinancieras. Sin embargo, la literatura existente presenta brechas importantes que la presente investigación busca llenar. En primer lugar, ningún estudio analiza el sol peruano de forma específica: tanto Eguren-Martin y Sokol (2022) como Bondatti y Rillo (2022) trabajan con paneles que priorizan monedas de mayor liquidez y profundidad, mientras que Manner, Rodríguez y Stöckler (2024) analizan el mercado bursátil peruano pero no el tipo de cambio como variable dependiente. En segundo lugar, los estudios de países específicos disponibles, Ferrara y Yapi (2022) y Ostry (2023), se concentran en monedas del G-10 o en episodios puntuales, sin abordar la predicción continua en series de tiempo para monedas emergentes. En tercer lugar, la totalidad de los estudios sobre riesgo de cola cambiario emplea la regresión cuantílica lineal como metodología central, lo que impone restricciones de linealidad que pueden resultar especialmente costosas en las colas de la distribución, donde las relaciones entre variables son más complejas y cambiantes. 
+
+Frente a estas tres brechas, la presente investigación, incorpora como predictores los factores identificados por la literatura internacional (condiciones financieras globales, precios de commodities, diferencial de tasas e incertidumbre global) y emplea BART (Bayesian Additive Regression Trees) como metodología principal de predicción. Este enfoque permite capturar no linealidades e interacciones entre variables sin necesidad de especificarlas a priori, a la vez que proporciona medidas de incertidumbre bayesiana sobre las predicciones de cola. De este modo, se identifican los principales determinantes macroeconómicos y geopolíticos que impulsan los riesgos extremos al alza y a la baja, bajo un enfoque de incertidumbre. Así también, se analiza el mecanismo de transmisión de los riesgos extremos del mercado cambiario sobre la política monetaria, evaluando así cómo los indicadores de incertidumbre y asimetría anticipan un ajuste en la tasa de referencia del BCRP; aportando una herramienta predictiva sobre las decisiones de la autoridad monetaria ante choques externos e internos.
+
+En cuanto a la estructura del documento: el marco teórico introduce la definición del tipo de cambio nominal y los fundamentos conceptuales del riesgo de cola, precisando los mecanismos económicos a través de los cuales esta variable puede verse afectada. En segundo lugar, la revisión de literatura se organiza en dos secciones: la primera se enfoca en describir investigaciones pasadas respecto al riesgo de cola del tipo de cambia a nivel internacional y regional, dado que no se han encontrado fuentes que investiguen esa variable a nivel local; la segunda reseña trabajos que han aplicado la metodología BART o sus extensiones para predecir los riesgos de cola de distintas variables de importancia macroeconómica. En tercer lugar, se presentan las variables de frecuencia diaria seleccionadas a usar para esta investigación con base a la literatura revisada. Por último, en la sección de metodología se describen cuatro métodos de Machine Learning, de los cuales el Random Walk y el Quantile Regression se usarán de benchmark; y los otros dos modelos, Quantile Random Forests y Bayessian Additive Regression Trees se presentan como métodos de gran robustez para predecir el riesgo de cola para el tipo de cambio peruano.   
+
+
+
+
+% Preguntas guia:
+% \begin{enumerate}[leftmargin=*]
+%     \item Que variables explican mejor la dinamica de percentiles extremos de retorno cambiario?
+%     \item Que metodo pronostica mejor la cola de la distribucion: ML lineal/no lineal o BART?
+%     \item Como cambia la precision en horizontes de corto y mediano plazo?
+% \end{enumerate}
+\section{Marco Teórico}
+\subsection{Teorías sobre la determinación del tipo de cambio}
+
+El tipo de cambio constituye una de las variables más relevantes en el sistema financiero internacional, no solo por su papel como precio relativo entre monedas, sino por su capacidad de transmitir shocks entre economías, condicionar decisiones de inversión y reflejar el estado de los fundamentos macroeconómicos de un país. Sin embargo, a pesar de décadas de desarrollo teórico, su predicción sigue siendo uno de los problemas más persistentes en la economía internacional. Comprender por qué resulta tan difícil de anticipar exige revisar, en primer lugar, cómo la teoría económica ha explicado su determinación y, en segundo lugar, cuáles son los límites de esa explicación frente a la evidencia empírica.
+
+En 1984, Frenkel y Mussa, formalizan el enfoque de mercado de activos como marco dominante para el análisis de tipos de cambio flexibles. Bajo esta perspectiva, el valor presente de la moneda depende de la suma descontada de las condiciones económicas futuras esperadas, de modo que cualquier cambio anticipado se refleja de manera inmediata en su cotización actual. La atención se desplaza así del flujo circular de pagos hacia la elección de cartera y el equilibrio de los stocks de activos (Frenkel y Mussa, 1984). En este nuevo marco, las expectativas pasan a ser un factor endógeno de primer orden: bajo el supuesto de expectativas racionales, los agentes incorporan instantáneamente toda la información disponible, lo que implica que los movimientos del tipo de cambio son, en gran medida, respuestas a noticias imprevistas. Esta misma racionalidad explica tanto la elevada volatilidad observada en los mercados cambiarios como la limitada capacidad de los gobiernos para manipular sistemáticamente la economía a través del tipo de cambio, dado que los agentes anticipan y neutralizan las intervenciones previsibles (Frenkel y Mussa, 1984).
+
+
+El enfoque de mercado de activos se articula en dos grandes bloques. El primero comprende los modelos monetarios, que suponen movilidad perfecta de capital y sustitución perfecta entre activos nacionales y extranjeros, siempre que sus rendimientos esperados sean equivalentes. Dentro de este bloque coexisten dos versiones principales. El modelo de precios flexibles postula que el tipo de cambio está determinado por la oferta y la demanda de dinero: un aumento de la oferta monetaria nacional deprecia la moneda, mientras que un incremento de la renta real nacional la aprecia al generar un exceso de demanda de dinero. Por otro lado, el modelo de sobrerreacción de Dornbusch (1976), cuyo análisis renovado ofrece Rogoff (2022), incorpora rigideces de precios en el mercado de bienes. Ante un choque monetario expansivo, la tasa de interés doméstica cae y, para que se mantenga la paridad de intereses no cubierta, el tipo de cambio debe depreciarse inicialmente por encima de su valor de equilibrio de largo plazo, generando el denominado overshooting. En este modelo, la volatilidad cambiaria no es una anomalía, sino una respuesta eficiente a la heterogeneidad en la velocidad de ajuste de los distintos mercados.
+
+El segundo bloque corresponde a los modelos de equilibrio de cartera, desarrollados principalmente por Branson (1976,1977) citado en Sosvilla (2011), en los que los activos nacionales y extranjeros no son sustitutos perfectos debido a factores como el riesgo cambiario, el riesgo político o la información asimétrica. En este esquema, los residentes pueden distribuir su riqueza entre dinero, bonos nacionales y bonos extranjeros, con efectos diferenciados sobre el tipo de cambio: un incremento de la oferta monetaria reduce los tipos de interés y provoca una depreciación; un aumento en la tenencia de bonos extranjeros suele traducirse en una apreciación de la moneda para ajustar el valor de la cartera; mientras que el efecto de un incremento de bonos nacionales resulta ambiguo, pues depende de si predomina el efecto riqueza, que deprecia la moneda al incentivar la compra de activos extranjeros, o el efecto sustitución derivado de la subida de tipos de interés, que la aprecia.
+
+% \todo{En general, los modelos teóricos anteriores merecen ser presentados de manera más formal (ecuaciones) explicandoo cada uno en subsecciones y brindado al final una conclusión. Presentar ademas un cuadro resumen de los modelos teóricos ayudaría a no perderse en el texto.}
+
+No obstante, la teoría de estos modelos contrasta con su desempeño empírico. Rogoff (2022) señala que el modelo de Dornbusch enfrenta dificultades para explicar movimientos sistemáticos del tipo de cambio, y que la correlación empírica entre tasas de interés y tipo de cambio es consistentemente débil, en particular para las principales divisas. Esta brecha entre teoría y evidencia se articula de forma más directa en el trabajo seminal de Frankel y Rose (1994), quienes documentan que los modelos macroeconómicos estructurales, basados en variables como la oferta monetaria, el ingreso nacional o los diferenciales de tasas de interés, son incapaces de superar, de manera confiable, la precisión predictiva de una caminata aleatoria en horizontes de corto y mediano plazo. El mejor predictor del tipo de cambio de mañana, concluyen, es simplemente el tipo de cambio de hoy.
+
+
+Los autores identifican varias razones que explican este fracaso. En primer lugar, existe una marcada disparidad entre la alta volatilidad de los tipos de cambio y la relativa estabilidad de las variables macroeconómicas que, en teoría, deberían explicarla. En segundo lugar, el mercado de divisas está influenciado por factores no fundamentales como las burbujas especulativas, el ruido de negociación y el análisis técnico, que generan dinámicas de precios imposibles de capturar con ecuaciones estructurales. En tercer lugar, los modelos macroeconómicos tradicionales ignoran la microestructura del mercado: el control de inventarios de los intermediarios, el flujo de órdenes y la heterogeneidad de expectativas entre participantes generan patrones de precio que escapan a cualquier modelo agregado (Frankel y Rose, 1994). A esto se suma la dificultad práctica de medir con precisión las expectativas del mercado en tiempo real, dado que los datos disponibles para el análisis son versiones revisadas que no reflejan la información que los agentes operaban al momento de tomar sus decisiones.
+
+Esta evidencia acumulada configura un escenario en el que los enfoques tradicionales resultan insuficientes para anticipar, con precisión aceptable, la dinámica del tipo de cambio, y más aún sus episodios de mayor riesgo. Esta limitación no es menor: en economías con alta dolarización financiera como el Perú, son precisamente esos episodios extremos, y no los movimientos típicos, los que concentran el riesgo sistémico y justifican la intervención del banco central.
+
+
+\subsection{Riesgo de cola del tipo de cambio: del nivel al extremo}
+En tanto esta investigación tiene el enfoque en la estabilidad financiera y la gestión del riesgo, los episodios de mayor relevancia no son los movimientos típicos de la moneda sino sus fluctuaciones extremas: las depreciaciones abruptas que concentran pérdidas, generan efectos de balance negativos y pueden desencadenar dinámicas de contagio. Esta distinción entre el nivel esperado del tipo de cambio y su riesgo de cola constituye el punto de partida conceptual de la presente tesis.
+
+% \subsubsection{Del tipo de cambio en media al FEaR}
+
+% Ostry (2023) formaliza esta distinción mediante el concepto de Foreign Exchange-at-Risk (FEaR), definido como la pérdida cambiaria máxima esperada a un nivel de confianza dado, en analogía directa con el Valor en Riesgo (VaR) aplicado a los retornos de activos financieros. Este concepto captura no solo la magnitud de los movimientos extremos del tipo de cambio sino también su asimetría: las colas de la distribución cambiaria no son simétricas, y la probabilidad de depreciaciones extremas puede ser sustancialmente mayor que la de apreciaciones de igual magnitud, especialmente para monedas de economías emergentes expuestas al ciclo global.
+
+En ese sentido, existe asimetría entre los determinantes del tipo de cambio en la parte central de su distribución y en sus colas. Esta no linealidad implica que los modelos estimados sobre la media de la distribución no son formalmente adecuados para anticipar episodios de cola, lo que justifica el uso de regresión cuantílica y otros métodos de aprendizaje automático como el que se desarrollará en la presente tesis.  
+
+\subsubsection{Determinantes encontrados sobre el riesgo de cola del tipo de cambio}
+
+\textbf{Riesgo Sistémico Global}
+
+En condiciones normales, los inversores internacionales mantienen posiciones en activos de economías emergentes porque el diferencial de rendimiento compensa el riesgo percibido. Este equilibrio, sin embargo, es inherentemente frágil: cuando el riesgo sistémico global aumenta abruptamente, el cálculo se revierte y los inversores liquidan sus posiciones de forma sincronizada, generando salidas de capital masivas que presionan el tipo de cambio hacia la depreciación. El mecanismo no opera de forma gradual ni simétrica. Rey (2015) documenta la existencia de un ciclo financiero global en los flujos brutos de capital, la creación de crédito y los precios de activos, estrechamente vinculado a las fluctuaciones en la incertidumbre y la aversión al riesgo global. En particular, los flujos de capital hacia economías emergentes se contraen sistemáticamente cuando el VIX aumenta: durante períodos de baja incertidumbre los inversores expanden sus posiciones en mercados emergentes, mientras que en episodios de estrés las reducen de forma abrupta y coordinada.
+
+Este comportamiento de manada es lo que convierte al riesgo sistémico global en un determinante de las colas de la distribución cambiaria y no de su media. La velocidad de salida de capitales no es proporcional al nivel del VIX sino que se acelera de forma discontinua cuando este supera ciertos umbrales, generando movimientos cambiarios que exceden lo que los fundamentos macroeconómicos justificarían. Miranda-Agrippino y Rey (2020) refuerzan este argumento al mostrar que un endurecimiento de la política monetaria de la Reserva Federal contrae simultáneamente los precios de activos riesgosos a escala global, eleva los spreads de bonos corporativos internacionales y provoca una retracción significativa de los flujos de crédito internacional, con efectos que se extienden incluso a países con régimen de flotación cambiaria. Esto último es especialmente relevante para el caso peruano: la flotación administrada del sol no provee aislamiento frente a este canal de transmisión global, lo que implica que episodios de alta aversión al riesgo global pueden generar presiones depreciadoras extremas con independencia de los fundamentos domésticos.
+
+El argumento para el riesgo de cola, entonces, descansa en la no linealidad del mecanismo: el VIX no predice el nivel del tipo de cambio sino su vulnerabilidad ante reversiones abruptas del apetito por riesgo global. Es precisamente esta asimetría la que justifica que el VIX tenga mayor poder explicativo sobre los percentiles extremos de la distribución cambiaria que sobre su media.
+
+\textbf{Condiciones financieras de Estados Unidos y economías desarrolladas}
+
+Más allá del comportamiento de manada capturado por el VIX, las condiciones financieras de Estados Unidos ejercen un canal de transmisión propio sobre el tipo de cambio nominal de economías emergentes que opera a través de la estructura de sus pasivos externos. Obstfeld y Zhou (2023) señalan que el tipo de cambio nominal del dólar es uno de los principales correlatos de las condiciones financieras globales: una apreciación del dólar implica un endurecimiento financiero a escala global, con consecuencias especialmente severas para economías emergentes y en desarrollo. El mecanismo es el siguiente: dado que una fracción mayoritaria de la deuda externa de economías emergentes está denominada en dólares, una apreciación de esa moneda eleva el valor de esas obligaciones en términos de moneda local, deteriora los balances de los agentes endeudados y endurece las condiciones financieras domésticas sin que medie necesariamente un cambio en la política monetaria local. Este canal de hoja de balance opera con independencia del nivel del VIX: incluso en períodos de relativa calma financiera global, un endurecimiento de las condiciones en Estados Unidos puede generar presiones depreciadoras sobre el sol porque activa el canal de deuda de forma directa.
+
+
+Rey (2015) añade una dimensión institucional relevante a este argumento. Cuando el ciclo financiero global se encuentra en fase expansiva y los flujos de capital ingresan masivamente a economías emergentes, los bancos centrales enfrentan el dilema de permitir una apreciación excesiva de su moneda, que daña al sector exportador, o intervenir en el mercado cambiario acumulando reservas, lo que genera presiones inflacionarias o costos de esterilización que pueden atraer aún más flujos. Esta dinámica es especialmente relevante para el BCRP, cuya acumulación de reservas durante períodos de bonanza es precisamente el mecanismo que le permite intervenir cuando el ciclo se revierte y las condiciones financieras se endurecen. La capacidad de esa intervención, por tanto, está estructuralmente vinculada a las condiciones financieras globales previas.
+
+Eguren-Martin y Sokol (2022) aportan la evidencia más directa sobre cómo este endurecimiento afecta asimétricamente las colas de la distribución cambiaria. Construyendo un índice de condiciones financieras globales como componente común de los índices de condiciones financieras de 43 economías, demuestran que un endurecimiento de ese índice desplaza asimétricamente la distribución de retornos cambiarios: en los percentiles extremos, las monedas de economías emergentes experimentan un engrosamiento de su cola izquierda que no es detectable en la media de la distribución. Más importante aún para el caso del sol, los autores identifican que la vulnerabilidad de cola ante este endurecimiento no es homogénea entre monedas sino que depende de características estructurales: las monedas de países con tasas de interés elevadas, bajos niveles de reservas internacionales y mayores déficits fiscales presentan sistemáticamente colas izquierdas más gruesas ante episodios de endurecimiento de las condiciones financieras globales. El sol peruano reúne varias de estas características, lo que lo sitúa entre las monedas con mayor vulnerabilidad estructural ante este tipo de shocks.
+
+\textbf{Política monetaria de la Reserva Federal y diferencial de tasas de interés}
+
+Las decisiones de política monetaria de la Reserva Federal y el diferencial de tasas de interés entre el sol y el dólar son parte de la misma cadena de transmisión hacia el riesgo de cola cambiario. El primero determina al segundo: cuando la Fed eleva su tasa de referencia, el rendimiento de los activos en dólares aumenta y el diferencial a favor del sol se comprime, debilitando el incentivo para mantener posiciones en moneda peruana. Pero la relevancia de este vínculo para el riesgo de cola no reside en el canal de tasas en sí mismo sino en lo que el diferencial acumula mientras es positivo y en cómo se deshace cuando las condiciones cambian.
+
+La Paridad de Intereses No Cubierta establece que el diferencial de tasas entre dos países debe ser compensado por la depreciación esperada de la moneda de mayor rendimiento. Sin embargo, Fama (1984) documenta que esta relación no se cumple empíricamente: las monedas con tasas de interés más altas tienden a apreciarse en promedio en lugar de depreciarse, lo que hace que la estrategia de carry trade, endeudarse en monedas de bajo rendimiento para invertir en monedas de alto rendimiento, sea sistemáticamente rentable. Fama atribuye este fenómeno a la existencia de una prima de riesgo variable en el tiempo, fuertemente correlacionada de forma negativa con el cambio esperado en el tipo de cambio, cuya variación es tan grande que domina la señal de las expectativas del mercado sobre el movimiento de las divisas. Este resultado tiene una implicancia directa para el sol peruano: en tanto mantiene un diferencial positivo frente al dólar, acumula posiciones de carry que generan una apreciación gradual pero que al mismo tiempo incrementan su vulnerabilidad ante una reversión abrupta.
+
+Es precisamente esa reversión lo que conecta el diferencial de tasas con el riesgo de cola. Brunnermeier, Nagel y Pedersen (2008) formalizan por qué las posiciones de carry trade generan distribuciones cambiarias con colas izquierdas gruesas: las ganancias se acumulan de forma gradual, pero las pérdidas se concentran en episodios breves y de gran magnitud. El mecanismo central es el cierre masivo y simultáneo de posiciones: cuando los inversores deciden salir del carry, lo hacen en estampida, provocando movimientos cambiarios mucho más bruscos que los de la fase de acumulación. Este comportamiento asimétrico se amplifica a través de espirales de liquidez: las pérdidas iniciales acercan a los especuladores a sus restricciones de financiamiento, obligándolos a vender sus posiciones para cumplir con requisitos de margen, lo que deprime aún más el tipo de cambio y genera más pérdidas en un ciclo de retroalimentación negativa. Los choques que generan ganancias, en cambio, no se ven amplificados de la misma manera, lo que produce estadísticamente la asimetría negativa característica de las monedas de carry. Brunnermeier, Nagel y Pedersen (2008) encuentran además que el VIX y el TED spread predicen estos episodios de colapso: un aumento en estos indicadores de tensión financiera anticipa pérdidas en el carry trade y caídas abruptas del tipo de cambio, conectando así este mecanismo con el canal de riesgo sistémico global descrito en la subsección anterior.
+
+El vínculo con la política monetaria de la Fed cierra el argumento. Bowman, Londono y Sapriza (2015) documentan que el canal de riesgo tiene un papel más importante que el canal de tasas para explicar la respuesta del tipo de cambio de economías emergentes a shocks de política monetaria estadounidense, y que las monedas de países con mayores tasas de interés y déficits de cuenta corriente tienden a depreciarse más ante aumentos en los spreads de alto rendimiento de EE.UU. Una sorpresa contractiva de la Fed, entonces, no solo comprime el diferencial PEN/USD sino que activa simultáneamente el mecanismo de cierre de carry descrito por Brunnermeier et al.: los inversores, ante el deterioro del apetito por riesgo global, deshacen sus posiciones en soles de forma sincronizada, generando presiones depreciadoras abruptas que se concentran en la cola izquierda de la distribución. Es esta concatenación, Fed contrae, diferencial se comprime, carry se deshace, cola izquierda se activa, la que justifica tratar ambas variables como parte de un mismo canal de transmisión hacia el FEaR del sol peruano.
+
+\textbf{Precios de las materias primas:}
+
+Para una economía exportadora de commodities como Perú, los precios de las materias primas constituyen uno de los determinantes más directos del tipo de cambio nominal. El canal de transmisión opera principalmente a través del mercado de divisas spot: cuando el precio de los minerales, como el cobre, aumentan, las empresas mineras reciben un mayor volumen de dólares por sus exportaciones. Esa mayor oferta de dólares en el mercado cambiario genera una presión apreciadora sobre el sol que se manifiesta de forma inmediata en el tipo de cambio nominal. En este sentido, el precio de las materias primas no solo refleja el valor unitario de las exportaciones sino que actúa como un indicador en tiempo real de las condiciones de demanda global. La dirección inversa opera de forma análoga: una caída abrupta en los precios de exportación reduce la oferta de dólares, presiona el tipo de cambio hacia la depreciación y puede desencadenar salidas de capital si los inversores anticipan un deterioro de los fundamentos fiscales y externos del país. El efecto sobre el tipo de cambio real es una consecuencia posterior que opera a través de los precios domésticos, pero el impacto inicial y más inmediato se produce sobre el tipo de cambio nominal.
+
+Chen y Rogoff (2003) formalizan este argumento para un conjunto de economías exportadoras de commodities, demostrando que los precios de las materias primas tienen un poder predictivo robusto y estadísticamente significativo sobre el tipo de cambio de estos países, con una relación que no es capturable por los modelos monetarios estándar. Los autores atribuyen este resultado a que los precios de commodities actúan como una señal en tiempo real sobre la riqueza futura de la economía exportadora, lo que los mercados cambiarios incorporan de forma inmediata en la cotización de la moneda. Cashin, Céspedes y Sahay (2004) extienden este hallazgo a una muestra más amplia de economías emergentes exportadoras de materias primas, confirmando que existe una relación de largo plazo entre los precios de commodities y el tipo de cambio, y que esa relación es más estrecha en economías donde las exportaciones de materias primas representan una fracción elevada del total exportado, como es el caso peruano.
+
+Bondatti y Rillo (2022) añaden una dimensión adicional relevante para el riesgo de cola: evaluando la exposición de distintas monedas al riesgo proveniente de 19 materias primas individuales, demuestran que cada moneda presenta una exposición heterogénea a distintos commodities y que esa exposición no depende exclusivamente de si el país es exportador del bien en cuestión, lo que evidencia la existencia de canales de transmisión global más amplios que el canal comercial directo. Este resultado implica que el riesgo de cola del sol ante shocks de commodities no se limita al precio del cobre sino que puede materializarse a través de movimientos en otras materias primas que afectan la percepción global de riesgo sobre economías exportadoras. Manner, Rodríguez y Stöckler (2024) corroboran para el caso latinoamericano que los choques provenientes de las materias primas generan mayores efectos de desbordamiento sobre los mercados financieros que los choques cambiarios, reforzando que este canal es primario para economías como la peruana y que su impacto se concentra precisamente en los episodios extremos antes que en los movimientos típicos de la moneda. 
+
+La relevancia de este canal para el riesgo de cola reside en la asimetría de los shocks de commodities. Una caída severa en el precio del cobre no solo reduce la oferta de dólares en el mercado spot sino que deteriora simultáneamente las expectativas sobre los ingresos fiscales, la cuenta corriente y la capacidad de intervención del BCRP, generando una presión depreciatoria que se amplifica a través de múltiples canales al mismo tiempo. Las caídas abruptas y de gran magnitud de las materias primas pueden desencadenar dinámicas de salida de capital que llevan al tipo de cambio a su cola izquierda.
+
+\textbf{Política monetaria del BCRP e intervención cambiaria: }
+
+A diferencia de los determinantes revisados anteriormente, la intervención cambiaria del BCRP no constituye un factor que empuje al tipo de cambio hacia su cola izquierda sino uno que actúa en dirección contraria, comprimiendo la distribución observada del tipo de cambio y reduciendo la probabilidad de episodios de depreciación extrema. Comprender este rol es indispensable para interpretar correctamente el riesgo de cola del sol peruano, porque la distribución histórica del tipo de cambio no es el resultado del libre funcionamiento del mercado sino una distribución condicionada a la función de reacción del banco central. 
+
+La principal motivación de las intervenciones cambiarias del Banco Central de Reserva del Perú es la elevada dolarización financiera de la economía peruana. Según el BCRP (2013), la dolarización implica riesgos para la economía porque genera descalces en los balances de los agentes económicos: las familias y empresas no financieras tienen, por lo general, ingresos en soles, pero sus deudas con el sistema financiero están denominadas principalmente en dólares. Por ello, una depreciación significativa del sol elevaría el monto de sus obligaciones sin un incremento similar en sus ingresos, generando un efecto de balance negativo que puede propagarse hacia el sistema financiero y la actividad real. Este mecanismo convierte la volatilidad cambiaria extrema en un riesgo sistémico con consecuencias que trascienden el mercado de divisas.
+
+Para mitigar este riesgo, el BCRP opera bajo un régimen de flotación administrada siguiendo una regla de apuntar contra la corriente: compra dólares cuando el sol enfrenta presiones de apreciación excesiva y los vende cuando enfrenta presiones de depreciación. Rodríguez, Castillo y Hasegawa (2023) documentan que estas intervenciones, ejecutadas mediante instrumentos como swaps cambiarios, repos y certificados de depósito reajustables, constituyen un instrumento no convencional que complementa la política de tasas de interés del banco central, con el objetivo de preservar la estabilidad financiera, garantizar la transmisión de la política monetaria y reducir la volatilidad del tipo de cambio frente a shocks externos. Manner, Rodríguez y Stöckler (2024) aportan evidencia indirecta de su efectividad al mostrar que los efectos de desbordamiento asociados a choques cambiarios en América Latina tienden a ser menores que los generados por las materias primas, resultado que los autores atribuyen en parte al rol activo de los bancos centrales latinoamericanos que han recurrido a esquemas de flotación administrada e intervenciones cambiarias para reducir la volatilidad de sus monedas.
+
+La efectividad de este mecanismo amortiguador, sin embargo, no es una constante sino una variable condicionada a dos factores. El primero es el nivel de reservas internacionales disponibles: la capacidad del BCRP para proveer liquidez en dólares durante episodios de presión depreciadora depende directamente del stock de reservas acumuladas durante períodos de bonanza. El segundo es la magnitud y velocidad del shock externo: en episodios donde la presión depreciadora es suficientemente intensa o donde múltiples factores de estrés se activan simultáneamente, la demanda de dólares puede superar la capacidad de respuesta del banco central. Bajo esta lógica, la intervención comprime la cola izquierda de la distribución observada del tipo de cambio pero no elimina el riesgo subyacente. Esta consideración es especialmente relevante en episodios de estrés global extremo, donde la capacidad de intervención del BCRP puede verse limitada por el nivel de reservas internacionales disponibles o por la magnitud y velocidad de las salidas de capital.
+
+Para la estimación del riesgo de cola del sol peruano esto tiene una implicancia metodológica directa: el nivel de reservas internacionales del BCRP debe incorporarse como variable predictora no porque genere depreciaciones sino porque determina la capacidad del banco central de contenerlas. Un modelo que ignore esta variable capturaría únicamente el riesgo observado en la distribución histórica condicionada a la intervención, subestimando el riesgo de cola latente en los episodios donde la capacidad amortiguadora del BCRP es más limitada y el riesgo subyacente tiene mayor probabilidad de materializarse. 
+
+
+\section{Revisión de literatura}
+
+La predicción del riesgo de cola del tipo de cambio constituye un campo de investigación relativamente reciente que se sitúa en la intersección de tres corrientes de literatura: los estudios sobre determinantes del tipo de cambio en distribuciones completas, la literatura sobre riesgo sistémico global y su transmisión cambiaria, y los desarrollos metodológicos en predicción no paramétrica de riesgos extremos.
+
+La evidencia empírica disponible se organiza en tres grandes categorías: estudios basados en paneles internacionales de monedas, análisis de países o episodios específicos, y evidencia regional para América Latina. La ausencia de estudios específicos para el sol peruano dentro de este marco constituye la brecha que motiva la presente investigación. Se dedica además una sección a los desarrollos metodológicos en torno a BART, presentando su aplicación a la predicción de riesgos de cola en otras variables macroeconómicas.
+
+
+\subsection{Evidencia internacional: estudios de panel}
+
+Los estudios de panel sobre riesgo de cola cambiario han documentado de manera sistemática que los determinantes del tipo de cambio operan de forma asimétrica a lo largo de su distribución, con efectos cualitativamente distintos en los percentiles extremos respecto a la media. Esta corriente de literatura ha avanzado tanto en la identificación de los factores de riesgo como en el desarrollo de metodologías capaces de capturar estas asimetrías.
+
+
+El trabajo de Eguren-Martin y Sokol (2022) constituye una referencia central en esta categoría. Mediante regresión cuantílica aplicada a un panel de 61 países, tanto avanzados como emergentes, con datos mensuales para el período 1995–2018, los autores demuestran que un endurecimiento de las condiciones financieras globales desplaza asimétricamente la distribución de retornos cambiarios. Mientras las monedas refugio (como el yen japonés, el franco suizo y el dólar estadounidense) se aprecian o permanecen estables, las monedas de economías emergentes experimentan un engrosamiento de su cola izquierda que no es detectable en la media de la distribución. El índice de condiciones financieras globales se construye como el componente común de los índices de condiciones financieras de 43 economías, incorporando diferenciales soberanos, tasas de interés de largo plazo, y retornos y volatilidad bursátil. Los fundamentales macroeconómicos incluidos como variables explicativas son el diferencial de tasas de interés, las reservas internacionales, el saldo en cuenta corriente y la posición de activos externos netos. El hallazgo central es que diferenciales de tasas elevados, déficits en cuenta corriente y bajos niveles de reservas son los factores que mejor explican la heterogeneidad en la vulnerabilidad de cola entre monedas, con un poder explicativo que es significativamente mayor en los percentiles extremos que en la media de la distribución.
+
+
+Fan, Londono y Xiao (2019) aportan una dimensión complementaria al estudiar cómo el riesgo de cola del mercado accionario estadounidense se transmite hacia los retornos cambiarios en sección transversal. Utilizando datos mensuales, construyen un factor de riesgo de cola a partir de opciones put fuera del dinero sobre el S\&P 500 y demuestran que este factor explica la variación transversal de los retornos de exceso cambiarios: las monedas con alta exposición a este factor ofrecen menores primas de riesgo porque actúan como coberturas naturales ante eventos extremos del mercado accionario global. En un modelo de forma reducida, los autores muestran además que los factores de riesgo de cola específicos por país solo tienen poder de valoración en la sección transversal cuando contienen un componente de riesgo global, lo que establece la primacía del canal sistémico sobre los factores idiosincrásicos en la determinación del riesgo cambiario extremo.
+
+
+Bondatti y Rillo (2022) extienden el análisis hacia los mercados de materias primas como fuente específica de vulnerabilidad de cola cambiaria. Con datos diarios para el período 2004–2021 sobre 16 monedas (8 de economías avanzadas y 8 emergentes) aplican un modelo MCoVaR con Elastic-Net que evalúa simultáneamente 19 commodities individuales del índice S\&P GSCI, incorporando como variables de control el componente autorregresivo del tipo de cambio, los retornos rezagados del S\&P 500, el VIX y un índice de bonos corporativos de EE.UU. El principal hallazgo es que la exposición al riesgo de cola proveniente de los commodities es heterogénea entre monedas y no depende exclusivamente de si el país es exportador del bien en cuestión, lo que evidencia la operación de canales de transmisión global más amplios. La metodología MCoVaR permite capturar las interconexiones simultáneas entre múltiples materias primas, evitando los sesgos que surgirían de analizar cada commodity de forma aislada. Los autores identifican además al yen japonés y al franco suizo como activos de refugio seguro frente a las fluctuaciones del oro, diferenciándolos del resto de monedas analizadas.
+
+\subsection{Evidencia internacional: países y episodios específicos}
+
+Junto a los estudios de panel, una segunda corriente de literatura ha analizado el riesgo de cola cambiario en monedas o episodios específicos, permitiendo una caracterización más detallada de los mecanismos de transmisión y de las variables relevantes en contextos particulares.
+
+
+Ostry (2023) formaliza el concepto de Foreign Exchange-at-Risk (FEaR) como marco analítico para el estudio de las fluctuaciones extremas del tipo de cambio durante crisis financieras globales. Mediante una regresión cuantílica con signo aplicada a datos mensuales de las monedas del G-10 entre 1986 y 2020, extiende la regresión UIP estándar de Fama (1984) incorporando dos variables explicativas centrales: el diferencial de tasas de interés entre cada moneda y el dólar, y la prima de liquidez de los bonos del Tesoro de EE.UU. como proxy del flight-to-safety global. Los resultados muestran que los diferenciales de interés predicen depreciaciones hasta diez veces mayores que las sugeridas por la UIP, mientras que los picos en la prima de liquidez del Tesoro aprecian al dólar con independencia del diferencial de tasas vigente. Este paper es especialmente relevante para la presente tesis porque provee tanto el concepto de FEaR como la definición formal de la variable dependiente que se adopta, y porque su lógica implica que el sol peruano, al mantener históricamente diferenciales de tasas positivos frente al dólar, es estructuralmente vulnerable a depreciaciones extremas en episodios de estrés global.
+
+
+Ferrara y Yapi (2022) analizan el riesgo de cola cambiario en dos episodios específicos de incertidumbre: el Brexit y la pandemia de COVID-19. Empleando datos mensuales, realizan una regresión cuantílica basada en una versión extendida de la regresión de Fama, incorporando el el Índice de Incertidumbre de Política Económica (EPU) del Reino Unid y el VIX como medidas de incertidumbre. Su principal aporte es demostrar que los determinantes del tipo de cambio no tienen un efecto uniforme a lo largo de toda la distribución: bajo condiciones normales los diferenciales de tasas explican la dinámica general, pero en los percentiles extremos son las variables de incertidumbre las que dominan y explican mejor el comportamiento cambiario. Para el caso del COVID-19, los autores documentan que la incertidumbre fue percibida como un riesgo global, generando un vuelo hacia el dólar y aumentando los riesgos de depreciación en monedas emergentes como el peso mexicano, resultado que es directamente extrapolable al sol peruano dado el comportamiento observado del PEN durante ese episodio.
+
+\subsection{Evidencia regional: América Latina}
+
+La evidencia específica para América Latina sobre riesgo de cola cambiario es escasa, lo que refleja tanto la menor profundidad de los mercados financieros de la región como la disponibilidad limitada de datos de alta frecuencia para algunas monedas. El trabajo más cercano en esta categoría es el de Manner, Rodríguez y Stöckler (2024), que si bien analiza el riesgo en los mercados bursátiles latinoamericanos, y no directamente en los tipos de cambio, aporta evidencia relevante sobre los mecanismos de transmisión en el contexto regional.
+
+
+Los autores estudian la vulnerabilidad de los mercados accionarios de Argentina, Brasil, Chile, México y Perú frente a fluctuaciones en los precios de materias primas y tipos de cambio, utilizando datos diarios para el período 2001–2021. El modelo empleado es un Copula-GARCH con detección no paramétrica de puntos de cambio, que permite identificar de manera endógena rupturas estructurales tanto en la volatilidad como en la dependencia entre activos. Los resultados muestran que los efectos de desbordamiento asociados a choques cambiarios son menores que los generados por las materias primas, lo que se explicaría en parte por el rol activo de los bancos centrales latinoamericanos mediante flotación administrada e intervenciones cambiarias. Desde el punto de vista metodológico, el hallazgo más relevante es que los puntos de cambio en volatilidad y en dependencia no ocurren necesariamente de forma simultánea, lo que implica que un aumento en el riesgo individual de un mercado no genera automáticamente un incremento inmediato del riesgo de contagio. El estudio identifica además un incremento significativo del riesgo de contagio tras la crisis financiera global de 2008 y un aumento del riesgo condicional durante el COVID-19, con el mercado peruano incluido explícitamente en la muestra.
+
+\subsection{Métodos no paramétricos en la predicción del riesgo de cola cambiario}
+
+Paralelamente al desarrollo de la literatura sobre determinantes del riesgo de cola cambiario, una corriente metodológica creciente ha explorado el uso de métodos no paramétricos y de aprendizaje automático para la predicción de riesgos extremos en mercados financieros. Esta literatura es especialmente relevante para la presente tesis porque provee el fundamento empírico para el uso de BART como alternativa a la regresión cuantílica lineal predominante en los estudios revisados anteriormente.
+
+
+La regresión cuantílica, introducida por Koenker y Bassett (1978), ha sido el método estándar en la literatura de riesgo de cola cambiario. Su principal ventaja es que permite estimar el efecto de las variables explicativas en diferentes puntos de la distribución condicional del tipo de cambio sin imponer supuestos sobre su forma funcional. Sin embargo, en su versión lineal, que es la utilizada en todos los estudios de panel y de casos específicos revisados, impone el supuesto de que las relaciones entre predictores y variable dependiente son constantes a lo largo de cada cuantil, lo que excluye interacciones no lineales y efectos umbral que pueden ser especialmente relevantes en las colas de la distribución.
+
+
+Aldasoro et al. (2025) representan el avance más reciente en esta dirección metodológica aplicada al mercado cambiario. Los autores demuestran que el bosque aleatorio, un método de aprendizaje automático basado en ensambles de árboles de decisión, supera significativamente a los modelos autorregresivos de referencia en la predicción del estrés extremo del mercado de divisas, logrando una reducción de hasta 27\% en la pérdida cuantílica a horizontes de 3 a 12 meses. Construyen el FX MCI a partir de variables diarias de volatilidad, iliquidez y desviaciones de condiciones de no arbitraje, agregadas mediante análisis de componentes principales con ventana rodante, y utilizan un conjunto de 44 variables predictoras que incluye medidas de liquidez de financiamiento, sobreextensión de inversores y ciclo financiero global. Mediante valores de Shapley identifican que los predictores más importantes del estrés extremo futuro en el mercado cambiario son la volatilidad implícita de opciones sobre los pares EUR/USD y GBP/USD, las realizaciones pasadas del propio FX MCI y el nivel de estrés en el mercado de bonos del Tesoro. Un hallazgo metodológico relevante es que el FX MCI captura episodios de estrés idiosincrásico del mercado de divisas que el VIX no refleja, lo que evidencia la necesidad de indicadores específicos por mercado para la predicción del riesgo de cola.
+
+
+La presente tesis se posiciona en la frontera de esta corriente metodológica al emplear BART, que extiende la lógica de los ensambles de árboles de Aldasoro et al. (2025) incorporando un marco de inferencia bayesiana. A diferencia del bosque aleatorio, BART entrega intervalos de credibilidad explícitos para las predicciones de cola, lo que es especialmente valioso cuando el objetivo es estimar probabilidades de eventos extremos para la toma de decisiones de política cambiaria. Adicionalmente, BART captura de manera natural las interacciones no lineales entre predictores, como la interacción entre precios de commodities y condiciones financieras globales que caracteriza la vulnerabilidad del sol peruano, sin necesidad de especificarlas a priori, superando así la principal limitación de la regresión cuantílica lineal utilizada en los estudios precedentes.
+
+\subsection{Literatura relacionada la metodología BART}
+
+La ausencia de aplicaciones de BART específicamente al tipo de cambio en la literatura existente no implica que esta metodología sea desconocida en el ámbito de la predicción de riesgos extremos en economía. Por el contrario, en los últimos años se ha consolidado una corriente metodológica robusta que ha aplicado BART y sus extensiones a una variedad de variables macroeconómicas y financieras, demostrando de manera consistente su superioridad sobre los métodos paramétricos tradicionales en la predicción de colas. La presente sección revisa esta corriente y traza el camino metodológico que conduce a la especificación adoptada en la presente tesis para el tipo de cambio peruano.
+
+
+Chipman, George y McCulloch (2010) desarrollan un modelo bayesiano de suma de árboles en el que cada árbol está restringido por un prior de regularización para ser un aprendiz débil, y el ajuste y la inferencia se logran mediante un algoritmo iterativo de backfitting bayesiano MCMC que genera muestras de una distribución posterior. En esencia, BART es un enfoque de regresión bayesiano no paramétrico que utiliza elementos de base aleatorios adaptativos en dimensión. Publicado en The Annals of Applied Statistics, este paper es la referencia fundacional de toda la literatura BART aplicada a la economía. Sus propiedades son especialmente atractivas para la predicción del riesgo de cola: al no imponer ninguna forma funcional sobre la relación entre predictores y variable dependiente, BART puede capturar no linealidades, interacciones entre variables y cambios de régimen de manera puramente orientada por los datos. Este enfoque permite realizar inferencia posterior completa, incluyendo estimaciones puntuales e intervalos de la función de regresión desconocida, así como los efectos marginales de los predictores potenciales. Adicionalmente, en términos de desempeño predictivo fuera de muestra medido por RMSE, Chipman et al. (2010) demuestran que BART supera a métodos como boosting, LASSO, MARS, redes neuronales y random forests, lo que lo posiciona como una alternativa competitiva dentro del espacio de modelos no paramétricos.
+
+
+Es así que varios autores usan esta nueva metodología para distintos fines, creando extensiones. Por ejemplo, Huber y Rossini (2022) proponen combinar modelos VAR con BART para superar el supuesto de linealidad entre las variables endógenas y sus rezagos, que podría ser excesivamente restrictivo y tener un impacto negativo en la precisión del pronóstico. El modelo BAVART resultante es capaz de capturar relaciones no lineales arbitrarias entre las variables endógenas y las covariables sin requerir mucha intervención del investigador, y permite volatilidad estocástica en los errores dado que controlar la heterocedasticidad es clave para producir pronósticos de densidad precisos. Publicado en The Annals of Applied Statistics, este paper es el eslabón técnico entre Chipman et al. (2010) y las aplicaciones macroeconómicas posteriores: demuestra que BART puede integrarse en estructuras dinámicas de manera coherente desde el punto de vista bayesiano, generando modelos que heredan la flexibilidad no paramétrica de BART y la estructura de interdependencias dinámicas del VAR.
+
+
+Clark, Huber, Koop, Marcellino y Pfarrhofer (2023) representan el desarrollo metodológico más directamente relevante para la presente tesis. Los autores desarrollan modelos de series de tiempo usando BART que postulan no linealidades entre variables macroeconómicas, sus rezagos y posiblemente sus errores rezagados, evaluando el desempeño en pronósticos de densidad y cola para un conjunto de indicadores macroeconómicos y financieros de EE.UU. Una contribución central del paper es que propone distintas especificaciones según cómo se trate la varianza del error: una varianza estable, una con volatilidad estocástica, o una especificación no paramétrica, denominada hBART, donde la varianza misma se modela mediante una suma de árboles, permitiendo que la volatilidad cambie en función de variables como el tiempo o valores rezagados.
+
+
+Sus resultados muestran que los modelos propuestos mejoran la precisión de pronóstico tanto en general como en las colas, y que cuando se permite la no linealidad en la media condicional la heterocedasticidad se vuelve menos importante. El condicionamiento en diferentes valores del índice nacional de condiciones financieras revela interacciones altamente no lineales entre las distribuciones predictivas y las condiciones financieras, una dinámica imposible de capturar con regresión cuantílica lineal y directamente relevante para el caso del sol peruano, cuya distribución condicional debería responder de forma no lineal a los shocks de commodities y condiciones financieras globales. Dado que en la presente tesis la variable dependiente es el tipo de cambio como serie univariada, la especificación relevante de Clark et al. (2023) es la del BART univariado con extracción de cuantiles desde la distribución predictiva posterior, que constituye el núcleo metodológico de esta investigación.
+
+
+Por otro lado, Huber y Marcellino (2024) se enfocan en la predicción de riesgos de cola en el mercado del petróleo estableciendo un marco empírico general que permite distribuciones predictivas flexibles de los precios del crudo que pueden apartarse de la normalidad, basado en BART y asumiendo que los shocks están impulsados por un modelo de volatilidad estocástica. Los autores demuestran que su enfoque no paramétrico mejora los pronósticos de cola respecto a tres modelos competidores: regresiones cuantílicas comúnmente usadas para estudiar eventos de cola, el VAR bayesiano con volatilidad estocástica y el random walk simple. Este paper es especialmente relevante para la presente tesis porque el petróleo y los metales industriales, determinantes centrales del riesgo de cola del sol peruano, comparten propiedades distribucionales similares: colas gruesas, asimetría y relaciones no lineales con determinantes macroeconómicos globales.
+
+
+Clark, Huber, Koop, Marcellino y Pfarrhofer (2024) desarrollan un modelo de regresión cuantílica de panel no paramétrico bayesiano en el que, dentro de cada cuantil, la función de respuesta es una combinación convexa de un modelo lineal y una función no lineal aproximada mediante BART, capturando la información de sección transversal a través de un factor latente condicionalmente heterocedástico. Aplicado al estudio del Growth-at-Risk en un panel de 11 economías avanzadas, los autores encuentran que BART es un método particularmente útil en tiempos de crisis (como la Crisis Financiera de 2008-2009 o la pandemia de COVID) cuando los problemas de riesgo de cola son más relevantes, aunque en períodos normales las ganancias predictivas son más moderadas. Si bien la estructura de panel de este modelo no es directamente replicable para el caso de una sola economía, su contribución conceptual es relevante para la presente tesis: establece que la combinación de flexibilidad cuantílica y no paramétrica de BART produce ganancias predictivas precisamente cuando el riesgo de cola es más relevante para la toma de decisiones, exactamente el contexto en que el sol peruano exhibe sus eventos extremos más severos.
+
+
+Boeck y Marcellino (2025) investigan el desempeño empírico de varios métodos econométricos para predecir riesgos de cola para la economía italiana, evaluando en un ejercicio de pronóstico fuera de muestra el desempeño en términos de punto, densidad y cola para el crecimiento del PBI, la inflación, la razón deuda-PBI y la razón déficit-PBI, utilizando una batería que incluye BVARs con volatilidad estocástica, BART y procesos gaussianos. El resultado principal es que el BVAR-SV se desempeña particularmente bien para Italia en las colas, mientras que modelos más flexibles como el BART-VAR-SV fueron capaces de adaptarse más oportunamente a las tasas de inflación extremas experimentadas en 2022. Este paper provee un modelo directo de cómo estructurar la evaluación comparativa de BART frente a benchmarks para una economía específica, exactamente el ejercicio que la presente tesis replica para el caso peruano, y establece que la superioridad entre BART y modelos paramétricos bayesianos no es universal sino dependiente del contexto y del tipo de shock analizado.
+
+
+La literatura metodológica revisada establece de manera consistente tres hallazgos que fundamentan el uso de BART en la presente tesis. Primero, BART supera sistemáticamente a la regresión cuantílica lineal y a los modelos paramétricos en la predicción de colas, especialmente en episodios de estrés y cambio estructural, heredando esta ventaja del modelo BAVART desarrollado por Huber y Rossini (2022) e integrado en un marco de tail forecasting por Clark et al. (2023). Segundo, la ventaja de BART proviene específicamente de su capacidad para capturar no linealidades en la media condicional, reduciendo la importancia de modelar explícitamente la heterocedasticidad, aunque la especificación hBART de Clark et al. (2023) ofrece ganancias adicionales en las colas cuando la volatilidad es marcadamente heterocedástica. Tercero, las ganancias de BART son heterogéneas a lo largo del ciclo económico, siendo mayores precisamente en los momentos donde el riesgo de cola es más relevante para la toma de decisiones, en línea con el marco conceptual de Adrian et al. (2019) y los resultados de Clark et al. (2024). Ninguno de los estudios revisados aplica BART al tipo de cambio como variable dependiente, y ninguno lo aplica a una economía emergente de América Latina. Esta doble brecha, temática y geográfica, es la que la presente tesis busca llenar.
+
+
 
 \section{Datos y variables}
+Las variables del estudio se organizan en dos grupos: la variable objetivo y las variables explicativas. Estas últimas fueron seleccionadas a partir de la revisión de literatura y se han recolectado en frecuencia diaria.
+
+\begin{table}[H]
+\centering
+\caption{Variable dependiente}
+\label{tab:variable_dependiente}
+\footnotesize
+
+\begin{tabular}{p{4cm} p{8cm} p{2.5cm}}
+\hline
+\textbf{Variable} & \textbf{Definición} & \textbf{Fuente} \\
+\hline
+
+Tipo de cambio interbancario PEN/USD 
+& Variación diaria del tipo de cambio nominal interbancario venta del sol peruano respecto al dólar estadounidense. Se emplea la variación porcentual (o logarítmica) del tipo de cambio para analizar movimientos extremos en los cuantiles superiores e inferiores de su distribución condicional. 
+& BCRP \\
+
+\hline
+\end{tabular}
+
+\vspace{0.2cm}
+
+\begin{minipage}{1.0\textwidth}
+\footnotesize
+\textit{Nota:} Un incremento en la variación del tipo de cambio representa una depreciación del sol peruano frente al dólar estadounidense, mientras que una disminución representa una apreciación. 
+\end{minipage}
+
+\end{table}
+
+\begin{table}[h!]
+\centering
+\caption{Variables explicativas}
+\label{tab:variables_explicativas}
+\footnotesize
+\small
+\begin{tabular}{p{3cm} p{6cm} p{2.5cm}}
+\hline
+\textbf{Grupo} & \textbf{Variable} & \textbf{Fuente} \\
+\hline
+
+Riesgo sistémico global
+& VIX (CBOE)
+& CBOE \\
+
+& Spread bonos corporativos HY EE.UU. (BAA10Y)
+& FRED \\
+
+\hline
+
+Condiciones financieras (EE.UU.)
+& T-bill 3 meses (DGS3MO)
+& FRED \\
+
+& NFCI Chicago Fed
+& Chicago Fed \\
+
+\hline
+
+Fundamentales macro (Perú)
+& Diferencial de tasas (BCRP -- Fed)
+& BCRP + FRED \\
+
+& Reservas internacionales netas del BCRP
+& BCRP \\
+
+& Intervención cambiaria BCRP (flujos totales)
+& BCRP \\
+
+\hline
+
+Materias primas
+& Precio del cobre (futuros COMEX, contrato continuo)
+& COMEX \\
+
+& Precio del oro (spot XAU/USD)
+& LBMA / Investing.com \\
+
+& Precio del zinc (futuros, contrato continuo)
+& LME \\
+
+\hline
+
+Incertidumbre política (Perú)
+& EMBIG Perú
+& BCRP \\
+
+\hline
+\end{tabular}
+\vspace{0.15cm}
+\end{table}
+
+
+%\begin{minipage}{0.93\textwidth}
+%\footnotesize
+%\textit{Nota:} Los signos esperados reflejan la dirección anticipada del efecto de cada variable sobre los cuantiles extremos de la variación del tipo de cambio nominal PEN/USD. La cola superior representa episodios de depreciación extrema del sol peruano, mientras que la cola inferior representa episodios de apreciación extrema. Un signo positivo en la cola superior indica una mayor presión depreciatoria, mientras que un signo negativo en la cola inferior indica una mayor presión apreciatoria. Dado el carácter no lineal y flexible del modelo Quantile BART, estos signos representan relaciones esperadas teóricamente y no restricciones paramétricas impuestas al modelo.
+%\end{minipage}
+\end{table}
+
 \subsection{Variable objetivo}
-Defina retornos logaritmicos como:
+Defina retornos logarítmicos como:
 \begin{equation}
     r_{t+h} = 100\times\left(\log S_{t+h} - \log S_t\right),
 \end{equation}
@@ -78,86 +402,403 @@ Para cada horizonte $h$, estime quantiles condicionales:
     Q_{\tau}(r_{t+h}\mid X_t),\quad \tau \in \{0.01,0.05,0.10,0.90,0.95,0.99\}.
 \end{equation}
 
-\subsection{Predictores}
-\todo{Describir bloques de variables: macro, financieras, globales, riesgo, liquidez, terminos de intercambio.}
+\section{Metodología}
 
-\section{Metodologia}
-\subsection{Modelos base}
-\begin{itemize}[leftmargin=*]
-    \item Benchmark lineal (AR, ARX, quantile regression).
-    \item Modelos ML (Random Forest, Gradient Boosting, XGBoost u otros).
-    \item BART para modelar no linealidades e interacciones.
-\end{itemize}
+\subsection{Caminata Aleatoria}
 
-\subsection{Esquema de entrenamiento y validacion}
-\todo{Ventana expandida o rodante, frecuencia de reentrenamiento y periodos de evaluacion out-of-sample.}
+La Universidad de Harvard define a la caminata aleatoria como un modelo matemático para el movimiento de una partícula bajo la influencia de un mecanismo estocástico que afecta su dirección. Según Nau (2014), este modelo asume que, en cada periodo, la variable da un paso aleatorio alejándose de su valor anterior, donde el tamaño de los pasos es independiente e idénticamente distribuido (i.i.d.). En términos prácticos, la primera diferencia de la serie debe asemejarse a ruido blanco.
 
-\subsection{Metricas de evaluacion}
-Use funcion de perdida quantilica (pinball loss):
+Se distinguen tres variantes principales:
+
+\subsubsection{Caminata sin Deriva}
+Supone que el promedio de los pasos es cero, por lo que el pronóstico a $k$ periodos es:
+
 \begin{equation}
-    L_{\tau}(u)=u\left(\tau-\mathbb{I}\{u<0\}\right),\quad u=r_{t+h}-\hat{Q}_{\tau,t+h}.
+\hat{Y}_{n+k} = Y_n
 \end{equation}
 
-Compare modelos con:
-\begin{itemize}[leftmargin=*]
-    \item Pinball loss promedio por $\tau$ y horizonte $h$.
-    \item Cobertura empirica de eventos extremos.
-    \item Tests de comparacion predictiva (por ejemplo, Diebold-Mariano).
+\subsubsection{Caminata con Deriva}
+Incorpora un incremento promedio constante $\hat{d}$ en cada periodo:
+
+\begin{equation}
+\hat{Y}_{n+k} = Y_n + k \hat{d}, \quad \text{donde} \quad \hat{d} = \frac{Y_n - Y_1}{n-1}
+\end{equation}
+
+\subsubection{Caminata Geométrica}
+Se aplica cuando el logaritmo natural de la variable sigue un paseo aleatorio, común en finanzas:
+
+\begin{equation}
+\widehat{\ln(Y_{n+k})} = \ln(Y_n) + k r
+\end{equation}
+
+donde $r$ es la tasa de crecimiento o deriva en unidades logarítmicas.
+
+Para diagnosticar si una serie sigue este proceso, se recomienda analizar la primera diferencia mediante un test de autocorrelación. La regla de la raíz cuadrada del tiempo establece que el intervalo de confianza para un pronóstico a $k$ periodos crece por un factor de $\sqrt{k}$.
+
+Además, Durham y Flournoy (1994) aplican el \textit{random walk} a la estimación de cuantiles en diseños experimentales adaptativos, utilizando la \textbf{Regla de la Moneda Sesgada} y alcanzando una distribución estacionaria centrada en el cuantil de interés:
+
+\begin{equation}
+\hat{\mu} = \frac{1}{n} \sum_{i=1}^{n} X(i) + \Delta (Q - 0.5)
+\end{equation}
+
+\subsection{Regresión Cuantílica}
+
+A diferencia de la regresión clásica MCO, que estima cómo varía la media de una variable dependiente según los covariables, la regresión cuantílica permite analizar cómo cambia la relación entre variables a lo largo de toda la distribución condicional, capturando efectos que la media no puede revelar.  
+
+Formalizada por Koenker y Bassett (1978), estima el cuantil $\tau$ de la distribución condicional de $y$ dado $x$ resolviendo:
+
+\[
+\hat{\beta}(\tau)=\arg\min \sum_i \rho_\tau (y_i-x_i^\top \beta)
+\]
+
+donde la clave está en la función \textit{check} $\rho_\tau(u)$, denominada también por Dang et al. (2022) como función de pérdida \textit{Pinball} en la literatura de pronóstico probabilístico:
+
+\[
+\rho_\tau(u)=u\cdot(\tau-\mathbb{1}[u<0])
+\]
+
+Esta función penaliza asimétricamente los residuos según el cuantil objetivo. En el contexto del pronóstico probabilístico, esta función se utiliza para evaluar de manera integral la fiabilidad, nitidez y corrección de los resultados de las predicciones, y el indicador conocido como \textit{Quantile Score} la emplea directamente para medir el error de pronóstico en los cuantiles. La asimetría del mecanismo es la siguiente:
+
+\begin{itemize}
+    \item Si $\tau=0.9$, los residuos positivos (subestimar) pesan 9 veces más que los negativos. El modelo “sube” hasta que solo el 10\% de observaciones quede por encima.
+    
+    \item Si $\tau=0.5$, los pesos son iguales y se recupera la regresión mediana (mínimo de errores absolutos).
+    
+    \item Si $\tau=0.1$, los residuos negativos pesan 9 veces más.
 \end{itemize}
 
-\section{Resultados empiricos}
-\subsection{Desempeno agregado}
-\begin{table}[H]
-    \centering
-    \caption{Desempeno out-of-sample por modelo y percentil}
-    \label{tab:oos_summary}
-    \begin{threeparttable}
-    \begin{tabular}{lcccc}
-        \toprule
-        Modelo & $\tau=0.05$ & $\tau=0.10$ & $\tau=0.90$ & $\tau=0.95$ \\
-        \midrule
-        ARX-QR & -- & -- & -- & -- \\
-        RF-QR & -- & -- & -- & -- \\
-        GBM-QR & -- & -- & -- & -- \\
-        BART-QR & -- & -- & -- & -- \\
-        \bottomrule
-    \end{tabular}
-    \begin{tablenotes}
-    \small
-    \item Nota: Reemplace "--" con pinball loss promedio (menor es mejor).
-    \end{tablenotes}
-    \end{threeparttable}
-\end{table}
+Así, variando $\tau$ de 0 a 1, se obtiene un mapa completo de cómo $x$ desplaza no solo el centro, sino toda la forma de la distribución de $y$.
 
-\subsection{Episodios de estres}
-\begin{figure}[H]
-    \centering
-    \fbox{\parbox[c][0.30\textheight][c]{0.9\textwidth}{\centering
-    Inserte aqui la figura de quantiles pronosticados vs retornos observados}}
-    \caption{Quantiles pronosticados vs retornos observados en periodos de estres}
-    \label{fig:tail_ts}
-\end{figure}
+Esto tiene dos consecuencias importantes. Primero, sobre la heterogeneidad de efectos: como señalan Huang et al. (2017), la regresión cuantílica cuantifica cómo los covariables afectan de manera distinta cada parte de la distribución del resultado, algo que la regresión de la media no puede detectar. El impacto de una variable puede ser fuerte y significativo en los cuantiles bajos y débil o incluso de signo opuesto en los altos. 
 
-\subsection{Importancia de variables}
-\todo{Incluir SHAP, permutation importance o inclusion frequencies de BART.}
+Segundo, sobre la robustez: al no requerir que la distribución del error se especifique bajo supuestos paramétricos estrictos, el método es naturalmente más resistente a \textit{outliers}, heterocedasticidad y colas pesadas. Huang et al. formalizan este punto mostrando que la función \textit{check} está relacionada con la distribución Laplace asimétrica (ALD), cuya estructura puede explotarse también para inferencia bayesiana.
 
-\section{Robustez}
-\begin{itemize}[leftmargin=*]
-    \item Cambios de ventana de entrenamiento.
-    \item Diferentes definiciones de retornos (log/simple) y horizontes.
-    \item Submuestras por regimen de volatilidad.
+Finalmente, una aplicación especialmente relevante de este enfoque es la construcción de densidades predictivas completas. Como ilustra Yapi (2020) en el contexto de tipos de cambio, estimar un conjunto suficientemente fino de cuantiles condicionales permite reconstruir la distribución condicional completa de la variable dependiente, a partir de la cual es posible calcular directamente medidas de riesgo como el \textit{Expected Shortfall} —que captura la masa de probabilidad en la cola izquierda— y su contraparte de cola superior, el \textit{Expected Longrise}, que un modelo OLS nunca podría proveer al estimar solo la media.
+
+\subsection{Quantile Random Forest}
+
+En principio es necesario explicar lo que es un Random Forest. Este es un método de aprendizaje supervisado propuesto por Breiman (2001), basado en la construcción de múltiples árboles de decisión que operan de forma conjunta. Para construir cada árbol, se aplica un proceso de \textit{bootstrap}: se extraen aleatoriamente $N$ observaciones con reemplazo del conjunto de datos original. En cada nodo de división, no se evalúan todos los $M$ predictores disponibles, sino un subconjunto aleatorio de $m$ variables (donde $m \ll M$), seleccionando la mejor partición entre ellas. Este proceso se repite para un número predefinido de árboles ($N_\text{tree}$), cada uno desarrollado de forma independiente. Ante una nueva observación, cada árbol emite un voto sobre su predicción, y el resultado final corresponde al valor con mayor número de votos acumulados. La combinación de múltiples árboles reduce el sobreajuste al que son propensos los árboles individuales, dotando al modelo de mayor capacidad de generalización.
+
+Sin embargo, el Random Forest estándar está diseñado para estimar la media condicional $E(Y|X=x)$, lo que resulta insuficiente cuando el interés recae en los extremos de la distribución. Meinshausen (2006) propone el \textit{Quantile Regression Forest} (QRF) como extensión natural, cuyo objetivo es estimar la distribución condicional completa de $Y$ dado $X=x$, y a partir de ella obtener cualquier cuantil de interés.
+
+La idea central es que un Random Forest estándar, al promediar las predicciones de cada árbol, descarta información valiosa sobre la dispersión de los valores en cada hoja. En cambio, el QRF, en lugar de guardar solo el promedio de los valores en cada nodo hoja, retiene todas las observaciones que caen en ese nodo. Esto permite que los mismos pesos adaptativos $w_i(x)$ del algoritmo original, definidos por la co-membresía de las observaciones en las hojas de cada árbol, se utilicen para construir una función de distribución acumulada empírica:
+
+\[
+\hat{F}(y \mid X=x)=\sum_{i=1}^{n} w_i(x)\,\mathbf{1}_{\{Y_i \leq y\}}
+\]
+
+El cuantil condicional estimado al nivel $\alpha$ se obtiene entonces como:
+
+\[
+\hat{Q}_\alpha(x)=\inf\{y:\hat{F}(y|X=x)\geq \alpha\}
+\]
+
+De acuerdo con Meinshausen (2006) y Sarmah, Rosaler et al. (2024), este enfoque tiene tres ventajas metodológicas relevantes.
+
+\begin{enumerate}
+    \item Es completamente no paramétrico: no impone ninguna forma funcional sobre la distribución del error ni sobre la relación entre covariables y cuantiles.
+    
+    \item A diferencia de los métodos básicos de regresión cuantílica que necesitan modelos separados para cada cuantil, el QRF estima la distribución condicional completa con un único modelo.
+    
+    \item El algoritmo es consistente y competitivo en términos de poder predictivo.
+\end{enumerate}
+
+Una consecuencia directa es que los intervalos de predicción resultantes —construidos como $[\hat{Q}_{0.025}(x),\hat{Q}_{0.975}(x)]$— ofrecen una forma basada en principios para juzgar la fiabilidad de las predicciones: un intervalo estrecho indica alta certeza, mientras que uno ancho refleja mayor incertidumbre local.
+
+Extensiones posteriores han ampliado su alcance. Shiraishi et al. (2024) demuestran la consistencia del estimador bajo dependencia temporal (\textit{tsQRF}), mostrando que en datos financieros como el Nikkei el estimador es más sensible a la volatilidad que modelos alternativos, previniendo la subestimación del riesgo. Andreani (2025) integra el enfoque MIDAS para acomodar covariables de frecuencia mixta, permitiendo incorporar información de alta y baja frecuencia que de otro modo sería inutilizable, capturando relaciones no lineales y distribuciones sesgadas y de colas pesadas.
+
+El QRF constituye así un puente entre los métodos de \textit{machine learning} basados en árboles y la inferencia distribucional, anticipando la lógica de modelos como BART que, operando también sobre distribuciones condicionales completas, ofrecen adicionalmente cuantificación de incertidumbre epistémica vía inferencia bayesiana.
+
+\subsection{Bayesian Additive Regression Trees (BART)}
+
+BART (\textit{Bayesian Additive Regression Trees}) es un enfoque de regresión no paramétrico que aproxima una función desconocida mediante la combinación aditiva de múltiples árboles de decisión simples. A diferencia de los modelos que utilizan un único árbol grande, BART emplea la suma de muchos árboles “pequeños y débiles”, donde cada uno captura solo una pequeña fracción de la variación total de los datos. La potencia del modelo emerge precisamente de esta combinación aditiva.
+
+Según sus creadores, Chipman, George y McCulloch (2008), el modelo se compone de dos elementos fundamentales: un modelo de suma de árboles y un \textit{prior} de regularización sobre los parámetros del modelo.
+
+\subsubsection{Especificación matemática del modelo}
+
+El modelo se expresa como la suma de $m$ árboles de regresión:
+
+\[
+Y=\sum_j g(x;T_j,M_j)+\varepsilon
+\]
+
+donde cada $g(x;T_j,M_j)$ representa un árbol individual con su estructura ($T_j$) y los parámetros de sus nodos terminales ($M_j$). La predicción final para un valor dado de $x$ es la suma de los valores de los nodos terminales asignados por cada uno de los $m$ árboles.
+
+Por defecto se utilizan $m=200$ árboles, lo que proporciona una enorme flexibilidad de representación, funcionando como una base de funciones aleatorias que se adapta dimensionalmente a los datos.
+
+\begin{quote}
+“Esta flexibilidad dota a BART de excelentes capacidades predictivas y se obtiene aumentando rápidamente el número de parámetros” (Chipman, George \& McCulloch, 2008).
+\end{quote}
+
+\subsubsection{Componentes clave del modelo}
+
+\textbf{Prior de regularización:} mediante un \textit{prior} de regularización, BART restringe cada árbol individual para que explique solo una parte pequeña y diferenciada de la variación total. Esto evita que un solo árbol domine el ajuste y permite aprovechar la estructura aditiva del modelo. Los hiperparámetros regulan los \textit{priors} sobre $T_j$, $M_j$ y $\sigma$, y pueden especificarse automáticamente usando la variación observada en $y$, o seleccionarse mediante validación cruzada.
+
+\vspace{0.2cm}
+
+\textbf{MCMC backfitting bayesiano:} BART se ajusta mediante un algoritmo iterativo de Monte Carlo por Cadenas de Markov llamado \textit{backfitting} bayesiano. En cada iteración, el algoritmo ajusta cada árbol a los residuos parciales, es decir, la diferencia entre el valor observado y la suma de las predicciones de todos los demás árboles. Este proceso genera muestras de la distribución posterior completa. Asimismo, durante este proceso BART permite medir la importancia de cada predictor basándose en la frecuencia con la que aparecen en los árboles.
+
+\vspace{0.2cm}
+
+\textbf{Distribución posterior completa:} a diferencia de los métodos tradicionales de \textit{machine learning}, BART no busca un único modelo “óptimo”, sino que genera una distribución posterior sobre el espacio de todos los posibles modelos de suma de árboles. Esto permite obtener de forma natural:
+
+\begin{itemize}
+    \item estimaciones puntuales (medias posteriores),
+    \item intervalos de incertidumbre (credibilidad bayesiana),
+    \item cuantiles de la distribución predictiva para análisis de colas.
 \end{itemize}
 
-\section{Conclusiones}
-\todo{Sintetizar determinantes principales, modelo ganador por cola, e implicaciones para politica y gestion de riesgo.}
+Este modelo tiene como ventaja que su flexibilidad le permite incorporar efectos de interacción (cuando un árbol depende de más de una variable) y efectos puramente aditivos (cuando cada árbol depende de una sola variable), sin imponer ninguna forma funcional rígida. Debido a que los árboles pueden tener distintos tamaños, las interacciones pueden ser de varios órdenes. 
 
-\appendix
-\section{Detalles adicionales}
-\todo{Hiperparametros, chequeos de estabilidad y tablas adicionales.}
+Esto lo distingue tanto de los modelos aditivos generalizados, que usan suavizadores de baja dimensión, como de los modelos de árbol único. Además, al ser bayesiano, permite obtener naturalmente estimaciones de punto e intervalos de incertidumbre para las predicciones, algo que los métodos tradicionales de \textit{machine learning} suelen carecer.
+
+Finalmente, Chipman, George y McCulloch (2008) muestran que BART supera en desempeño predictivo fuera de muestra a métodos como \textit{boosting}, LASSO, MARS, redes neuronales y \textit{random forests}, lo que lo posiciona como una alternativa competitiva dentro del espacio de modelos no paramétricos.
+
+\subsubsection{Extensiones del modelo}
+
+Si bien existen muchas extensiones del modelo, resulta particularmente relevante aquella aplicada al pronóstico de riesgos de cola, dado que constituye el enfoque principal de la presente investigación.
+
+Clark et al. (2023) extienden BART al caso multivariante. En lugar de predecir un único $Y$ escalar, el modelo considera un vector de respuestas:
+
+\[
+Y_i=(Y_1,\dots,Y_p)
+\]
+
+donde cada componente $h_i$ es, por sí misma, una suma de árboles:
+
+\[
+Y_i=h_i(x_i)+\varepsilon_i
+\]
+
+La diferencia fundamental es que los errores $(\varepsilon_1,\dots,\varepsilon_p)$ siguen una distribución normal multivariante con una matriz de covarianza $\Sigma$, lo que permite modelar las covarianzas entre variables de forma conjunta.
+
+Dado que el MCMC genera muestras de la distribución posterior, es posible extraer los cuantiles deseados de la distribución predictiva. Esta capacidad es fundamental para el pronóstico de eventos extremos.
+
+La contribución clave de Clark et al. es que, al modelar la media condicional de forma flexible, BART captura gran parte de la dinámica de los eventos extremos que los modelos lineales suelen atribuir únicamente a la varianza (heterocedasticidad). Por ejemplo, durante recesiones, la media condicional puede caer bruscamente: BART detecta estos cambios no lineales sin necesidad de modelos complejos de volatilidad estocástica.
+
+En consecuencia, controlar la heterocedasticidad se vuelve “menos preocupante” para obtener pronósticos de cola precisos.
+
+Los autores introducen además una especificación donde la varianza del error también se modela mediante una suma de árboles (\textit{hBART}). Esto permite que la volatilidad cambie de forma no paramétrica en función de variables como el tiempo o valores rezagados, mejorando el pronóstico en las colas de la distribución conjunta.
+
+Por otra parte, para validar la precisión del pronóstico en los extremos se utilizan métricas específicas:
+
+\begin{itemize}
+    \item \textit{Quantile Score} (QS), que evalúa la precisión en un cuantil específico.
+    
+    \item \textit{Quantile-weighted CRPS} (QW-CRPS), que evalúa el ajuste ponderado en toda la distribución.
+\end{itemize}
+
+En síntesis, el modelo BART combina la flexibilidad de un modelo no paramétrico con la riqueza inferencial del enfoque bayesiano. Su estructura de suma de árboles le permite adaptarse a relaciones complejas, no lineales y con interacciones de alto orden, mientras que la distribución posterior completa provee incertidumbre cuantificada de forma natural.
+
+En su extensión multivariante con \textit{tail forecasting}, el modelo resulta especialmente adecuado para capturar la dinámica de eventos extremos en periodos de crisis, sin depender de supuestos funcionales rígidos ni de modelos sofisticados de volatilidad estocástica. En tal sentido, esas son las razones por las que se ha escogido este modelo para predecir los riesgos de cola del tipo de cambio peruano.
+
+
+
+
+
+% \subsection{Esquema de entrenamiento y validacion}
+% \todo{Ventana expandida o rodante, frecuencia de reentrenamiento y periodos de evaluacion out-of-sample.}
+
+% \subsection{Metricas de evaluacion}
+% Use funcion de perdida quantilica (pinball loss):
+% \begin{equation}
+%     L_{\tau}(u)=u\left(\tau-\mathbb{I}\{u<0\}\right),\quad u=r_{t+h}-\hat{Q}_{\tau,t+h}.
+% \end{equation}
+
+% Compare modelos con:
+% \begin{itemize}[leftmargin=*]
+%     \item Pinball loss promedio por $\tau$ y horizonte $h$.
+%     \item Cobertura empirica de eventos extremos.
+%     \item Tests de comparacion predictiva (por ejemplo, Diebold-Mariano).
+% \end{itemize}
+
+% \section{Resultados empiricos}
+% \subsection{Desempeno agregado}
+% \begin{table}[H]
+%     \centering
+%     \caption{Desempeno out-of-sample por modelo y percentil}
+%     \label{tab:oos_summary}
+%     \begin{threeparttable}
+%     \begin{tabular}{lcccc}
+%         \toprule
+%         Modelo & $\tau=0.05$ & $\tau=0.10$ & $\tau=0.90$ & $\tau=0.95$ \\
+%         \midrule
+%         ARX-QR & -- & -- & -- & -- \\
+%         RF-QR & -- & -- & -- & -- \\
+%         GBM-QR & -- & -- & -- & -- \\
+%         BART-QR & -- & -- & -- & -- \\
+%         \bottomrule
+%     \end{tabular}
+%     \begin{tablenotes}
+%     \small
+%     \item Nota: Reemplace "--" con pinball loss promedio (menor es mejor).
+%     \end{tablenotes}
+%     \end{threeparttable}
+% \end{table}
+
+% \subsection{Episodios de estres}
+% \begin{figure}[H]
+%     \centering
+%     \fbox{\parbox[c][0.30\textheight][c]{0.9\textwidth}{\centering
+%     Inserte aqui la figura de quantiles pronosticados vs retornos observados}}
+%     \caption{Quantiles pronosticados vs retornos observados en periodos de estres}
+%     \label{fig:tail_ts}
+% \end{figure}
+
+% \subsection{Importancia de variables}
+% \todo{Incluir SHAP, permutation importance o inclusion frequencies de BART.}
+
+% \section{Robustez}
+% \begin{itemize}[leftmargin=*]
+%     \item Cambios de ventana de entrenamiento.
+%     \item Diferentes definiciones de retornos (log/simple) y horizontes.
+%     \item Submuestras por regimen de volatilidad.
+% \end{itemize}
+
+% \section{Conclusiones}
+% \todo{Sintetizar determinantes principales, modelo ganador por cola, e implicaciones para politica y gestion de riesgo.}
+
+% \appendix
+% \section{Detalles adicionales}
+% \todo{Hiperparametros, chequeos de estabilidad y tablas adicionales.}
 
 \begin{thebibliography}{99}
-\bibitem{bart_exchange_rate_placeholder}
-Autor(es) (Ano). Titulo del trabajo relacionado con BART y tipo de cambio. Revista/Working Paper.
+
+\bibitem{adrian2019}
+Adrian, T., Boyarchenko, N., \& Giannone, D. (2019). Vulnerable growth. \textit{American Economic Review}, 109(4), 1263--1289.
+
+\bibitem{aldasoro2025}
+Aldasoro, I., Hördahl, P., Schrimpf, A., \& Zhu, F. (2025). \textit{Predicting financial market stress with machine learning} (BIS Working Paper No. 1250). Bank for International Settlements.
+
+\bibitem{andreani2025}
+Andreani, M. (2025). On quantile regression forests for modelling mixed-frequency and longitudinal data. % VERIFICAR revista
+
+\bibitem{bcrp2013}
+Banco Central de Reserva del Perú. (2013). \textit{Determinantes del tipo de cambio real en el Perú}. Revista de Estudios Económicos, BCRP.
+
+\bibitem{bernanke2005}
+Bernanke, B. S. y Kuttner, K. N. (2005). What explains the stock market's reaction to Federal Reserve policy? \textit{The Journal of Finance}, 60(3), 1221--1257.
+
+\bibitem{bondatti2022}
+Bondatti, M., \& Rillo, A. (2022). Commodity tail-risk and exchange rate vulnerabilities. \textit{Finance Research Letters}, 47, 102651.
+
+\bibitem{boeck}
+Boeck, M., \& Marcellino, M. (2024). \textit{Predicting tail risks for the Italian economy}. Manuscript.
+
+\bibitem{bowman2015}
+Bowman, D., Londono, J. M. y Sapriza, H. (2015). U.S. unconventional monetary policy and transmission to emerging market economies. \textit{Journal of International Money and Finance}, 55, 27--59.
+
+\bibitem{breiman2001}
+Breiman, L. (2001). Random forests. \textit{Machine Learning}, 45(1), 5--32.
+
+\bibitem{brunnermeier2008}
+Brunnermeier, M. K., Nagel, S. y Pedersen, L. H. (2008). Carry trades and currency crashes. \textit{NBER Macroeconomics Annual}, 23, 313--347.
+
+\bibitem{cashin2004}
+Cashin, P., Céspedes, L. F. y Sahay, R. (2004). Commodity currencies and the real exchange rate. \textit{Journal of Development Economics}, 75(1), 239--268.
+
+\bibitem{chen2003}
+Chen, Y. y Rogoff, K. (2003). Commodity currencies. \textit{Journal of International Economics}, 60(1), 133--160.
+
+\bibitem{chipman2010}
+Chipman, H. A., George, E. I., \& McCulloch, R. E. (2010). BART: Bayesian additive regression trees. \textit{The Annals of Applied Statistics}, 4(1), 266--298.
+
+\bibitem{chulia2017}
+Chuliá, H., Guillén, M., \& Uribe, J. M. (2017). Spillovers from the United States to Latin American and G7 stock markets: A VAR quantile analysis. \textit{Emerging Markets Review}, 31, 32--46.
+
+\bibitem{clark2023}
+Clark, T. E., Huber, F., Koop, G., Marcellino, M., \& Pfarrhofer, M. (2023). Tail forecasting with multivariate Bayesian additive regression trees. \textit{International Economic Review}, 64(3), 1109--1135.
+
+\bibitem{clark2024}
+Clark, T. E., Huber, F., Koop, G., Marcellino, M., \& Pfarrhofer, M. (2024). Multicount nonparametric quantile modeling for Growth-at-Risk. \textit{Journal of Business \& Economic Statistics}, 42(3), 948--960.
+
+\bibitem{dornbusch1976}
+Dornbusch, R. (1976). Expectations and exchange rate dynamics. \textit{Journal of Political Economy}, 84(6), 1161--1176.
+
+\bibitem{durham1994}
+Durham, S. D. y Flournoy, N. (1994). Random walk for quantile estimation. % VERIFICAR revista y páginas
+
+\bibitem{eguren2022}
+Eguren-Martin, F., \& Sokol, A. (2022). Attention to the tail(s): Global financial conditions and exchange rate risks. \textit{IMF Economic Review}, 70(2), 487--519.
+
+\bibitem{fama1984}
+Fama, E. F. (1984). Forward and spot exchange rates. \textit{Journal of Monetary Economics}, 14(3), 319--338.
+
+\bibitem{fan2019}
+Fan, Z., Londono, J. M., \& Xiao, X. (2019). \textit{U.S. equity tail risk and currency risk premia} (International Finance Discussion Paper No. 1253). Board of Governors of the Federal Reserve System.
+
+\bibitem{ferrara2022}
+Ferrara, L., \& Yapi, J. (2022). Measuring exchange rate risks during periods of uncertainty. \textit{International Economics}, 169, 1--14.
+
+\bibitem{frankel1994}
+Frankel, J. A., \& Rose, A. K. (1994). A survey of empirical research on nominal exchange rates. \textit{NBER Working Paper}, 4865.
+
+\bibitem{frenkel1984}
+Frenkel, J. A., \& Mussa, M. L. (1984). Asset markets, exchange rates and the balance of payments. In R. W. Jones \& P. B. Kenen (Eds.), \textit{Handbook of International Economics} (Vol. 2, pp. 679--747). Elsevier.
+
+\bibitem{hanson2015}
+Hanson, S. G. y Stein, J. C. (2015). Monetary policy and long-term real rates. \textit{Journal of Financial Economics}, 115(3), 429--448.
+
+\bibitem{harvard_randomwalk}
+Harvard Natural Sciences Lecture Demonstrations. (s.f.). \textit{Random walk model}. Recuperado de \url{https://sciencedemonstrations.fas.harvard.edu/presentations/random-walk-model}
+
+\bibitem{huang2017}
+Huang, Q. et al. (2017). Quantile regression models and their applications: A review. % VERIFICAR revista
+
+\bibitem{huber2022}
+Huber, F., \& Rossini, L. (2022). Inference in Bayesian additive vector autoregressive tree models. \textit{The Annals of Applied Statistics}, 16(1), 104--123.
+
+\bibitem{huber2024}
+Huber, F., \& Marcellino, M. (2024). \textit{Risky oil: It's all in the tails} (NBER Working Paper). National Bureau of Economic Research.
+
+\bibitem{koenker1978}
+Koenker, R. y Bassett, G. (1978). Regression quantiles. \textit{Econometrica}, 46(1), 33--50.
+
+\bibitem{manner2024}
+Manner, H., Rodríguez, G., \& Stöckler, F. (2024). A changepoint analysis of exchange rate and commodity price risks for Latin American stock markets. \textit{International Review of Economics \& Finance}, 89, 1385--1403.
+
+\bibitem{meinshausen2006}
+Meinshausen, N. (2006). Quantile regression forests. \textit{Journal of Machine Learning Research}, 7, 983--999.
+
+\bibitem{miranda2020}
+Miranda-Agrippino, S. y Rey, H. (2020). US monetary policy and the global financial cycle. \textit{The Review of Economic Studies}, 87(6), 2754--2776.
+
+\bibitem{nau2014}
+Nau, R. (2014). \textit{Notes on the random walk model}. Fuqua School of Business, Duke University.
+
+%\bibitem{mussa1984}
+%Mussa, M. (1984). The theory of exchange rate determination. In J. F. O. Bilson \& R. C. Marston (Eds.), \textit{Exchange Rate Theory and Practice} (pp. 13--78). University of Chicago Press.
+
+\bibitem{ostry2023}
+Ostry, D. (2023). \textit{Tails of foreign exchange-at-risk} (Cambridge Working Paper in Economics No. 2343). University of Cambridge.
+
+\bibitem{obstfeld2022}
+Obstfeld, M. y Zhou, H. (2022). The global dollar cycle. \textit{Brookings Papers on Economic Activity}, 1--99.
+
+\bibitem{rey2015}
+Rey, H. (2015). Dilemma not trilemma: The global financial cycle and monetary policy independence. \textit{NBER Working Paper}, 21162.
+
+\bibitem{rodriguez2023}
+Rodríguez, G., Castillo, P., \& Hasegawa, H. (2023). Intervenciones cambiarias del BCRP y política monetaria. \textit{Revista Estudios Económicos}, BCRP.
+
+\bibitem{rogoff2022}
+Rogoff, K. (2022). Rethinking exchange rate competitiveness. \textit{Journal of International Money and Finance}, 124, 102621.
+
+\bibitem{sarmah2024}
+Sarmah, A., Rosaler, J. et al. (2024). Quantile regression using random forest proximities. % VERIFICAR revista
+
+\bibitem{sosvilla2011}
+Sosvilla, S. (2011). El mercado de divisas. In \textit{Fundamentos de Economía Internacional}. Universidad Complutense de Madrid.
+
+\bibitem{shiraishi2024}
+Shiraishi, H. et al. (2024). Time series quantile regression using random forests. % VERIFICAR revista
+
+\bibitem{yapi2020}
+Yapi, T. (2020). Exchange rate predictive densities and currency risks: A quantile regression approach. % VERIFICAR revista
+
+
+
 \end{thebibliography}
 
 \end{document}

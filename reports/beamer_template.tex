@@ -35,24 +35,27 @@
 \begin{itemize}
     \item El riesgo cambiario extremo afecta inflacion, balance sheets y estabilidad financiera.
     \item Los modelos lineales suelen fallar en colas y durante cambios de regimen.
+    \item Los enfoques tradicionales resultan insuficientes para anticipar, con precisión aceptable, la dinámica del tipo de cambio, y más aún sus episodios de mayor riesgo. 
     \item ML y BART pueden capturar no linealidades e interacciones relevantes.
 \end{itemize}
 \end{frame}
 
 \begin{frame}{Pregunta de investigacion}
+¿Cuáles son los principales determinantes de los movimientos extremos del tipo de cambio peruano y qué tan efectivo es el BART para predecirlos en comparación a modelos econométricos tradicionales?
 \begin{block}{Objetivo}
 Identificar determinantes y mejorar el pronostico de percentiles extremos de retornos del tipo de cambio.
 \end{block}
 
 \begin{itemize}
-    \item Que variables importan en cola izquierda ($\tau=0.05$) y derecha ($\tau=0.95$)?
+    \item Evaluar cuáles son los determinantes económicos que impulsan los riesgos de cola a la izquierda ($\tau=0.05$) y a la derecha ($\tau=0.95$)?
     \item Que metodo tiene mejor precision out-of-sample por horizonte?
+    \item Comparar la efectividad del modelo frente a otros modelos de 
 \end{itemize}
 \end{frame}
 
 \begin{frame}{Datos y variable objetivo}
 \begin{itemize}
-    \item Frecuencia: \todo{diaria/semanal/mensual}.
+    \item Frecuencia: Mensual
     \item Muestra: \todo{fecha inicio - fecha fin}.
     \item Objetivo: $r_{t+h}=100(\log S_{t+h}-\log S_t)$.
     \item Quantiles de interes: $\tau\in\{0.01,0.05,0.10,0.90,0.95,0.99\}$.
@@ -64,7 +67,7 @@ Identificar determinantes y mejorar el pronostico de percentiles extremos de ret
 \column{0.5\textwidth}
 \textbf{Bloque domestico}
 \begin{itemize}
-    \item tasas de interes
+    \item tasas de interes (diferencial de tasas)
     \item inflacion esperada
     \item actividad economica
 \end{itemize}
