@@ -1,565 +1,616 @@
-# ============================================================================
-# TESIS: Pronostico e Identificacion de Determinantes de los Retornos
-#        Extremos del Tipo de Cambio en Peru
-#
-# SCRIPT: QBART - Bayesian Quantile Additive Regression Trees
-#         (reemplaza al BART heteroscedastico de "BART riesgo de cola 2.R"
-#          por pedido del asesor: QBART estima cada cuantil DIRECTAMENTE,
-#          en vez de reconstruir la distribucion via location-scale)
-# ============================================================================
-#
-# QUE CAMBIA RESPECTO A "BART riesgo de cola 2.R" (resumen; el detalle de
-# cada cambio esta comentado en el lugar donde ocurre):
-#
-#   1. Modelo principal: QBART (bayesqart.R / qbart_adapter.R) en vez de
-#      wbart() del paquete BART con reconstruccion media+log-varianza.
-#      QBART ajusta UN modelo POR CADA cuantil tau -> es matematicamente mas
-#      directo (no asume Normalidad condicional y_i | x_i con solo sigma(x)
-#      variando), pero mas caro: nada de "un ajuste, todos los tau"; cada tau
-#      es su propio MCMC de arboles.
-#   2. Solo 3 cuantiles: tau = 0.05, 0.50, 0.95 (antes: 7 tau + grilla fina de
-#      99 para el qwCRPS). Por eso el qwCRPS integrado en grilla fina
-#      desaparece: no corresponde con solo 3 puntos. La evaluacion queda en
-#      Quantile Score (pinball) por tau + cobertura empirica.
-#   3. Sin BART package: no hace falta reconstruir_draws()/blindar_x()/
-#      ajustar_bart_het() del script original -> predecir_qbart_grid() ya
-#      devuelve la matriz de cuantiles pedida y maneja el caso de 1 sola fila
-#      de x_pred internamente (via vapply + coercion a matriz).
-#   4. Ventana expansiva CON CHECKPOINTS: dado el costo de QBART (ver mas
-#      abajo), la evaluacion recursiva puede tardar horas. Se guarda el
-#      progreso por bloque en "checkpoint_ventana.rds" y se reanuda solo si
-#      la configuracion (paso_reest, hp_qbart) coincide con la guardada.
-#   5. Determinantes: ya NO hace falta el desglose media/varianza + PDP con
-#      reconstruir_draws() del script original (era el sustituto de
-#      "importancia por cuantil" para un modelo location-scale). QBART da
-#      importancia POR CUANTIL de forma NATIVA (frecuencia de uso de cada
-#      variable en los arboles de CADA tau), via importancia_qbart_por_cuantil().
-#
-# COSTO COMPUTACIONAL (motor R puro; no esta instalado el paquete Rcpp
-# 'BayesQArt' en esta maquina, asi que qbart_adapter.R cae al fallback de
-# bayesqart.R): un benchmark a la escala real del problema (n~6200,
-# p=30, m=100 arboles) dio ~0.96 seg POR ITERACION MCMC. Con
-# m=100/burn=1000/ndpost=2000 y paso_reest=60 (23 bloques x 3 tau x 3000
-# iteraciones = 69 ajustes completos), la ventana expansiva sola es
-# ~55 horas; sumando tuneo (~4h) y determinantes (~2h), la corrida COMPLETA
-# es del orden de ~60 horas (~2.5 dias) corriendo sin parar. De ahi que:
-#   (a) el checkpoint por bloque sea obligatorio, no un lujo, y
-#   (b) el script arranque SIEMPRE en MODO_PRUEBA (parametros minimos) hasta
-#       que se cambie manualmente el flag de abajo.
-# ============================================================================
+############################################################################
+## QBART para riesgo de cola del tipo de cambio
+##
+## Uso:
+##   Rscript QBART_riesgo_de_cola.R
+##
+## Variables de entorno opcionales:
+##   QBART_MODE=prueba|exploracion|completa
+##   QBART_WINDOW_OBS=2520       # 0 usa ventana expansiva
+##   QBART_REESTIMATION_STEP=60
+##   QBART_MAX_TEST_ORIGINS=0    # 0 usa todo el test
+############################################################################
 
+options(stringsAsFactors = FALSE)
 
-# ============================================================================
-# 1. SETUP   [reutilizado tal cual de "BART riesgo de cola 2.R", con UN
-#             cambio: se quita el paquete "BART" de la lista porque el
-#             modelo principal ya no lo usa -sigue en la maquina para quien
-#             quiera comparar contra el script original, pero este script no
-#             lo necesita-]
-# ============================================================================
-
-paquetes <- c(
-  "dplyr", "tidyr", "purrr", "ggplot2",   # manipulacion y graficos
-  "quantreg",                              # Koenker y Bassett (1978) - benchmark
-  "quantregForest"                         # Meinshausen (2006) - benchmark
+required_packages <- c(
+  "dplyr", "tidyr", "ggplot2", "quantreg", "quantregForest",
+  "digest", "Rcpp", "BayesQArt"
 )
-instalar_faltantes <- paquetes[!paquetes %in% installed.packages()[, "Package"]]
-if (length(instalar_faltantes) > 0) install.packages(instalar_faltantes)
-invisible(lapply(paquetes, library, character.only = TRUE))
-
-set.seed(20222834)  # codigo de la autora, para reproducibilidad del MCMC
-
-ruta_datos  <- "D:/BARTs/data/datos/BASE DIARIO"
-ruta_out    <- "D:/BARTs/data/processed"
-ruta_figs   <- "D:/BARTs/reports/figures"
-dir.create(ruta_out,  recursive = TRUE, showWarnings = FALSE)
-dir.create(ruta_figs, recursive = TRUE, showWarnings = FALSE)
-
-h_pronostico <- 1
-
-# --- CAMBIO: taus se redefine a solo 3 cuantiles ---
-# El script original usaba taus = c(.01,.05,.10,.50,.90,.95,.99) + una grilla
-# fina de 99 puntos para integrar el qwCRPS. QBART ajusta un modelo MCMC
-# COMPLETO por cada tau (no comparte arboles entre cuantiles como el BART
-# location-scale), asi que agrandar el vector de tau multiplica el costo de
-# TODO el script proporcionalmente. Por pedido explicito: solo 0.05/0.50/0.95.
-taus <- c(0.05, 0.50, 0.95)
-
-# --- CAMBIO: paso_reest ahora se decide mas abajo, segun MODO_PRUEBA (§6) ---
-# (en el script original era una constante fija; aqui depende del modo)
-
-
-# ============================================================================
-# 2. CARGAR BASE Y CONSTRUIR VARIABLE DEPENDIENTE + PREDICTORES
-#    [reutilizado tal cual de "BART riesgo de cola 2.R", sin cambios]
-# ============================================================================
-
-base <- readRDS(file.path(ruta_datos, "base_final_diaria.rds")) %>%
-  arrange(fecha)
-
-base <- base %>% mutate(retorno_tc = 100 * retorno_tc)
-
-retorno_futuro <- function(retorno_diario, h) {
-  n <- length(retorno_diario)
-  out <- rep(NA_real_, n)
-  for (t in seq_len(n - h)) {
-    out[t] <- sum(retorno_diario[(t + 1):(t + h)])
-  }
-  out
-}
-
-base <- base %>%
-  mutate(y_objetivo = retorno_futuro(retorno_tc, h_pronostico))
-
-variables_nivel <- c(
-  "vix", "baa10y",
-  "tasa_usa", "nfci", "yield_to_worst",
-  "tp_1y", "tp_5y", "tp_10y",
-  "embig_peru"
-)
-
-variables_precio <- c(
-  "rin",
-  "oro", "cobre", "zinc", "plata", "wti",
-  "spx", "mxef",
-  "dxy", "jpy", "chf", "eur", "gbp",
-  "clp", "cop", "mxn", "brl", "cny"
-)
-
-base <- base %>%
-  mutate(across(all_of(variables_precio), ~ 100 * c(NA, diff(log(.x))),
-                .names = "d_{.col}")) %>%
-  mutate(
-    diff_tasas = tasa_peru - tasa_usa,
-    interv_bcrp = ifelse(is.na(interv_bcrp), 0, interv_bcrp)
+missing_packages <- required_packages[
+  !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
+]
+if (length(missing_packages) > 0L) {
+  stop(
+    "Faltan paquetes requeridos: ",
+    paste(missing_packages, collapse = ", "),
+    ". BayesQArt se instala desde https://github.com/bpkindo/bayesqart."
   )
-
-predictores <- c(
-  variables_nivel,
-  "diff_tasas", "interv_bcrp",
-  paste0("d_", variables_precio),
-  "retorno_tc"
-)
-
-datos_modelo <- base %>%
-  select(fecha, y_objetivo, all_of(predictores)) %>%
-  na.omit()
-
-cat("Observaciones disponibles:", nrow(datos_modelo), "\n")
-cat("Predictores:", length(predictores), "\n")
-cat("Rango de fechas:", as.character(min(datos_modelo$fecha)), "a",
-    as.character(max(datos_modelo$fecha)), "\n\n")
-
-
-# ============================================================================
-# 3. SPLIT CRONOLOGICO EN TRES BLOQUES: TRAIN / VALIDACION / TEST
-#    [reutilizado tal cual de "BART riesgo de cola 2.R", sin cambios]
-# ============================================================================
-
-n_total   <- nrow(datos_modelo)
-corte_tr  <- floor(0.60 * n_total)
-corte_val <- floor(0.80 * n_total)
-
-idx_train <- 1:corte_tr
-idx_val   <- (corte_tr + 1):corte_val
-idx_test  <- (corte_val + 1):n_total
-
-x_train <- as.matrix(datos_modelo[idx_train, predictores])
-y_train <- datos_modelo$y_objetivo[idx_train]
-x_val   <- as.matrix(datos_modelo[idx_val, predictores])
-y_val   <- datos_modelo$y_objetivo[idx_val]
-
-cat("Train:", length(idx_train), "obs. |",
-    "Validacion (tuneo):", length(idx_val), "obs. |",
-    "Test (evaluacion final):", length(idx_test), "obs.\n\n")
-
-formula_rq <- as.formula(paste("y_objetivo ~", paste(predictores, collapse = " + ")))
-
-
-# ============================================================================
-# 4. METRICA: QUANTILE SCORE (PINBALL)
-#    [reutilizado tal cual de "BART riesgo de cola 2.R"; se elimina el
-#     qwCRPS integrado en grilla fina -no aplica con solo 3 tau puntuales,
-#     ver nota en §1-]
-# ============================================================================
-
-pinball <- function(y_real, y_pred, tau) {
-  u <- y_real - y_pred
-  mean(u * (tau - as.numeric(u < 0)))
 }
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(quantreg)
+  library(quantregForest)
+})
 
-qs_metodo <- function(pred_matrix, y_real, taus) {
-  sapply(seq_along(taus), function(i) pinball(y_real, pred_matrix[, i], taus[i]))
-}
-
-
-# ============================================================================
-# 5. MOTOR QBART
-# ============================================================================
-# CAMBIO: reemplaza por completo a la §5 del script original (ajustar_bart_het
-# + reconstruir_draws + blindar_x). Ya no hace falta ningun helper propio:
-# predecir_qbart_grid() e importancia_qbart_por_cuantil() (definidas en
-# qbart_adapter.R) devuelven directamente lo que el resto del script necesita.
-#
-# NOTA: tus archivos estan en D:/BARTs/notebooks/, no en D:/BARTs/ como en tu
-# mensaje -se usan rutas absolutas para que no importe el working directory-.
-#
-# CAMBIO: se fuerza el motor en R puro (FORZAR_MOTOR_R <- TRUE) ANTES de
-# source(qbart_adapter.R). Se instalo el paquete Rcpp 'BayesQArt' via Rtools,
-# pero un benchmark a la escala real de este problema (n~6200, p=30, m=100)
-# mostro que resulta ~1.7x MAS LENTO por iteracion que bayesqart.R (0.82 vs
-# 0.43 s/iter; bajar 'nc' no lo mejora, el costo no esta ahi). Sin este
-# interruptor, qbart_adapter.R elegiria el paquete compilado automaticamente
-# por estar instalado -y seria la opcion mas lenta, no la mas rapida-.
-FORZAR_MOTOR_R <- TRUE
-source("D:/BARTs/notebooks/bayesqart.R")
-source("D:/BARTs/notebooks/qbart_adapter.R")
-
-
-# ============================================================================
-# 6. MODO DE CORRIDA: prueba / exploracion / completa
-# ============================================================================
-# CAMBIO: se agrega un tercer modo, "exploracion", entre el smoke test
-# (MODO_PRUEBA original) y la corrida completa (~60h). Con el motor en R puro
-# confirmado como el mas rapido, "exploracion" usa la MISMA estructura de
-# bloques que la corrida completa (paso_reest = 60, los 23 bloques reales) -
-# para que el resultado sea directamente comparable/informativo- pero con
-# menos arboles (m=50) y cadenas MCMC mas cortas (burn=300, ndpost=500).
-# Estimado: ~26 min de tuneo + ~3.3h de ventana expansiva + ~8 min de
-# determinantes =~ 3.9h, con margen bajo las 6h pedidas.
-MODO <- "exploracion"   # "prueba" | "exploracion" | "completa"
-
-if (MODO == "prueba") {
-  hp_qbart          <- modifyList(hp_qbart_default,
-                                  list(m = 15L, burn = 150L, ndpost = 200L, kappa = 2))
-  paso_reest        <- 200L
-  burn_tune         <- 15L
-  ndpost_tune       <- 20L
-  grilla_qbart      <- expand.grid(kappa = 2, m = 15L)   # grilla achicada para el smoke test
-  cat("*** MODO = 'prueba': hiperparametros minimos, solo para validar el flujo ***\n")
-  cat("*** Los resultados de esta corrida NO son la version final ***\n\n")
-} else if (MODO == "exploracion") {
-  hp_qbart          <- modifyList(hp_qbart_default,
-                                  list(m = 50L, burn = 300L, ndpost = 500L, kappa = 2))
-  paso_reest        <- 60L   # misma granularidad de bloques que la corrida completa
-  burn_tune         <- 150L
-  ndpost_tune       <- 250L
-  grilla_qbart      <- expand.grid(kappa = c(1, 2, 3), m = c(50, 100))  # 6 configs
-  cat("*** MODO = 'exploracion': m=50, burn=300, ndpost=500, paso_reest=60 ***\n")
-  cat("*** Estimado ~3.9h. Resultados indicativos, no la version final. ***\n\n")
+script_path <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+project_root <- if (length(script_path) > 0L) {
+  dirname(normalizePath(sub("^--file=", "", script_path[1L]), mustWork = TRUE))
 } else {
-  hp_qbart          <- modifyList(hp_qbart_default,
-                                  list(m = 100L, burn = 1000L, ndpost = 2000L, kappa = 2))
-  paso_reest        <- 60L
-  burn_tune         <- 250L
-  ndpost_tune       <- 500L
-  grilla_qbart      <- expand.grid(kappa = c(1, 2, 3), m = c(50, 100, 200))
+  normalizePath(getwd(), mustWork = TRUE)
+}
+if (!file.exists(file.path(project_root, "notebooks", "qbart_adapter.R"))) {
+  stop("Ejecute el script desde la raiz del repositorio BARTs.")
+}
+Sys.setenv(QBART_PROJECT_ROOT = project_root)
+source(file.path(project_root, "notebooks", "qbart_adapter.R"))
+source(file.path(project_root, "src", "qbart_features.R"))
+source(file.path(project_root, "src", "qbart_workflow.R"))
+
+seed_base <- 20222834L
+set.seed(seed_base)
+taus <- c(0.05, 0.50, 0.95)
+horizon <- 1L
+mode <- match.arg(
+  Sys.getenv("QBART_MODE", unset = "prueba"),
+  c("prueba", "exploracion", "completa")
+)
+
+data_dir <- file.path(project_root, "data", "datos", "BASE DIARIO")
+output_dir <- Sys.getenv(
+  "QBART_OUTPUT_DIR",
+  unset = file.path(project_root, "data", "processed")
+)
+figure_dir <- Sys.getenv(
+  "QBART_FIGURE_DIR",
+  unset = file.path(project_root, "reports", "figures")
+)
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+
+read_env_integer <- function(name, default) {
+  value <- suppressWarnings(as.integer(Sys.getenv(name, unset = as.character(default))))
+  if (is.na(value)) default else value
 }
 
-sufijo_out <- paste0("_", MODO)
-
-
-# ============================================================================
-# 7. TUNEO DE HIPERPARAMETROS: GRILLA kappa x m
-# ============================================================================
-# CAMBIO: reemplaza a la §6 del script original (grilla k x ntree x sparse
-# para wbart). Aqui: kappa (~ shrinkage, analogo a "k" en BART) x m (numero
-# de arboles, analogo a "ntree"). No hay analogo directo a "sparse" (DART) en
-# QBART tal como esta implementado -ver nota al final de qbart_adapter.R-.
-# Seleccion: pinball PROMEDIO de los 3 tau sobre la validacion (no hay qwCRPS
-# integrado con solo 3 puntos, asi que el promedio simple es el criterio).
-
-cat("=== TUNEO QBART: evaluando", nrow(grilla_qbart), "configuraciones sobre la validacion ===\n\n")
-
-resultados_tuneo <- vector("list", nrow(grilla_qbart))
-
-for (i in seq_len(nrow(grilla_qbart))) {
-  cfg <- grilla_qbart[i, ]
-  t0  <- Sys.time()
-
-  hp_cfg <- modifyList(hp_qbart_default,
-                       list(kappa = cfg$kappa, m = cfg$m,
-                            burn = burn_tune, ndpost = ndpost_tune))
-
-  pred_val <- predecir_qbart_grid(x_train, y_train, x_val, taus, hp_cfg)
-
-  qs_val <- qs_metodo(pred_val, y_val, taus)
-  pinball_prom <- mean(qs_val)
-
-  resultados_tuneo[[i]] <- data.frame(
-    kappa = cfg$kappa, m = cfg$m,
-    pinball_prom = pinball_prom,
-    setNames(as.list(qs_val), paste0("pinball_tau_", taus)),
-    minutos = as.numeric(difftime(Sys.time(), t0, units = "mins"))
+if (mode == "prueba") {
+  hp_full <- utils::modifyList(
+    hp_qbart_default,
+    list(m = 20L, burn = 50L, ndpost = 100L)
   )
-
-  cat(sprintf("[%2d/%2d] kappa=%g  m=%3d  ->  pinball_prom=%.5f  (%.1f min)\n",
-              i, nrow(grilla_qbart), cfg$kappa, cfg$m, pinball_prom,
-              resultados_tuneo[[i]]$minutos))
+  hp_tune <- utils::modifyList(hp_full, list(burn = 20L, ndpost = 30L))
+  qbart_grid <- expand.grid(
+    kappa = c(1, 2),
+    m = c(10L, 20L),
+    min_obs = 5L,
+    maxdepth = 3L
+  )
+  tuning_seeds <- seed_base
+  default_step <- 200L
+  default_max_origins <- 200L
+} else if (mode == "exploracion") {
+  hp_full <- utils::modifyList(
+    hp_qbart_default,
+    list(m = 100L, burn = 1000L, ndpost = 2000L)
+  )
+  hp_tune <- utils::modifyList(hp_full, list(burn = 200L, ndpost = 300L))
+  qbart_grid <- expand.grid(
+    kappa = c(0.5, 1, 2),
+    m = c(50L, 100L),
+    min_obs = c(5L, 15L),
+    maxdepth = 3L
+  )
+  tuning_seeds <- seed_base + c(0L, 1000L)
+  default_step <- 60L
+  default_max_origins <- 0L
+} else {
+  hp_full <- hp_qbart_default
+  hp_tune <- utils::modifyList(hp_full, list(burn = 500L, ndpost = 1000L))
+  qbart_grid <- expand.grid(
+    kappa = c(0.5, 1, 2),
+    m = c(100L, 200L),
+    min_obs = c(5L, 15L),
+    maxdepth = c(3L, 4L)
+  )
+  tuning_seeds <- seed_base + c(0L, 1000L, 2000L)
+  default_step <- 60L
+  default_max_origins <- 0L
 }
 
-tabla_tuneo_qbart <- do.call(rbind, resultados_tuneo)
-tabla_tuneo_qbart <- tabla_tuneo_qbart[order(tabla_tuneo_qbart$pinball_prom), ]
+window_obs <- read_env_integer("QBART_WINDOW_OBS", 2520L)
+reestimation_step <- read_env_integer("QBART_REESTIMATION_STEP", default_step)
+max_test_origins <- read_env_integer(
+  "QBART_MAX_TEST_ORIGINS",
+  default_max_origins
+)
+calibration_window <- read_env_integer("QBART_CALIBRATION_WINDOW", 500L)
+calibration_min_obs <- read_env_integer("QBART_CALIBRATION_MIN_OBS", 100L)
+suffix <- paste0("_", mode, "_v2")
 
-cat("\n--- Resultados del tuneo QBART (ordenados por pinball promedio; menor = mejor) ---\n")
-print(round(tabla_tuneo_qbart, 5), row.names = FALSE)
+message("=== QBART ", toupper(mode), " ===")
+message("Motor: ", hp_full$engine, " | ventana: ", window_obs, " observaciones")
 
-write.csv(tabla_tuneo_qbart,
-          file.path(ruta_out, paste0("qbart_tuneo_grilla", sufijo_out, ".csv")),
-          row.names = FALSE)
+# -------------------------------------------------------------------------
+# Datos y predictores causales
+# -------------------------------------------------------------------------
+data_path <- file.path(data_dir, "base_final_diaria.rds")
+if (!file.exists(data_path)) stop("No se encontro: ", data_path)
+base <- readRDS(data_path)
+prepared <- build_qbart_dataset(base, horizon)
+model_data <- prepared$data
+predictors <- prepared$predictors
 
-mejor <- tabla_tuneo_qbart[1, ]
-kappa_opt <- mejor$kappa
-m_opt     <- mejor$m
+n_total <- nrow(model_data)
+train_end <- floor(0.60 * n_total)
+validation_end <- floor(0.80 * n_total)
+index_train <- seq_len(train_end)
+index_validation <- seq.int(train_end + 1L, validation_end)
+index_test <- seq.int(validation_end + 1L, n_total)
+if (max_test_origins > 0L) {
+  index_test <- head(index_test, max_test_origins)
+}
 
-cat("\n============================================================\n")
-cat("CONFIGURACION SELECCIONADA: kappa =", kappa_opt, "| m =", m_opt, "\n")
-cat("============================================================\n\n")
+window_index <- function(last_index, maximum_length) {
+  if (maximum_length <= 0L) return(seq_len(last_index))
+  seq.int(max(1L, last_index - maximum_length + 1L), last_index)
+}
+index_tuning_train <- window_index(train_end, window_obs)
 
-# El resto del script usa hp_qbart con kappa/m TUNEADOS pero burn/ndpost
-# COMPLETOS (los de §6), igual que el script original reestima con la cadena
-# completa tras el tuneo.
-hp_qbart <- modifyList(hp_qbart, list(kappa = kappa_opt, m = m_opt))
+x_train <- as.matrix(model_data[index_tuning_train, predictors])
+y_train <- model_data$y_objetivo[index_tuning_train]
+x_validation <- as.matrix(model_data[index_validation, predictors])
+y_validation <- model_data$y_objetivo[index_validation]
 
+message(
+  "Datos: train=", length(index_tuning_train),
+  ", validacion=", length(index_validation),
+  ", test=", length(index_test),
+  ", predictores=", length(predictors)
+)
 
-# ============================================================================
-# 8. EVALUACION FUERA DE MUESTRA CON VENTANA EXPANSIVA (RECURSIVA POR BLOQUES,
-#    CON CHECKPOINTS)
-# ============================================================================
-# CAMBIO: reemplaza a la §7 del script "BART riesgo de cola 2.R" (que ya
-# habiamos optimizado a bloques). Aqui se agrega, ademas, CHECKPOINTING por
-# bloque: dado que un solo bloque completo (3 tau x 3000 iteraciones) puede
-# tardar ~40 minutos en modo completo, no reanudar desde cero ante un corte
-# es indispensable. El checkpoint guarda tambien la configuracion usada
-# (paso_reest, hp_qbart) y se descarta -no se reutiliza- si no coincide con
-# la configuracion actual, para no mezclar una corrida de prueba con una
-# completa (o dos configuraciones de tuneo distintas) a medio camino.
+# -------------------------------------------------------------------------
+# Tuning QBART separado por tau
+# -------------------------------------------------------------------------
+message("=== Tuning QBART separado por percentil ===")
+qbart_tuning <- tune_qbart_by_tau(
+  x_train,
+  y_train,
+  x_validation,
+  y_validation,
+  taus,
+  qbart_grid,
+  hp_tune,
+  seeds = tuning_seeds
+)
+hp_selected <- apply_qbart_tuning(hp_full, qbart_tuning)
+utils::write.csv(
+  qbart_tuning$table,
+  file.path(output_dir, paste0("qbart_tuneo_por_tau", suffix, ".csv")),
+  row.names = FALSE
+)
+print(qbart_tuning$best)
 
-origenes <- idx_test
-n_or  <- length(origenes)
+# -------------------------------------------------------------------------
+# Tuning QRF justo: score relativo por tau con mayor peso en colas
+# -------------------------------------------------------------------------
+p <- length(predictors)
+if (mode == "prueba") {
+  qrf_grid <- data.frame(
+    ntree = 100L,
+    mtry = max(1L, floor(sqrt(p))),
+    nodesize = 10L
+  )
+} else {
+  qrf_grid <- expand.grid(
+    ntree = if (mode == "completa") c(500L, 1000L) else c(300L, 500L),
+    mtry = unique(pmax(1L, c(floor(sqrt(p)), floor(p / 3)))),
+    nodesize = c(5L, 15L)
+  )
+}
+message("=== Tuning QRF con score relativo y ponderado en colas ===")
+qrf_tuning <- tune_qrf(
+  x_train,
+  y_train,
+  x_validation,
+  y_validation,
+  taus,
+  qrf_grid,
+  seeds = tuning_seeds
+)
+utils::write.csv(
+  qrf_tuning$table,
+  file.path(output_dir, paste0("qrf_tuneo", suffix, ".csv")),
+  row.names = FALSE
+)
+qrf_hp <- list(
+  ntree = as.integer(qrf_tuning$best$ntree),
+  mtry = as.integer(qrf_tuning$best$mtry),
+  nodesize = as.integer(qrf_tuning$best$nodesize)
+)
+
+# La validacion constituye el historial inicial del calibrador. Se reestima
+# con las cadenas finales y nunca usa observaciones del test futuro.
+message("=== Prediccion de validacion para calibracion causal ===")
+validation_raw <- predecir_qbart_grid(
+  x_train,
+  y_train,
+  x_validation,
+  taus,
+  hp_selected,
+  rearrange = TRUE
+)
+
+# -------------------------------------------------------------------------
+# Evaluacion fuera de muestra
+# -------------------------------------------------------------------------
+n_origins <- length(index_test)
 n_tau <- length(taus)
-n_bloques <- ceiling(n_or / paso_reest)
+n_blocks <- ceiling(n_origins / reestimation_step)
+y_test <- model_data$y_objetivo[index_test]
+checkpoint_path <- file.path(
+  output_dir,
+  paste0("checkpoint_qbart", suffix, ".rds")
+)
+data_hash <- digest::digest(
+  list(
+    date = model_data$fecha,
+    y = model_data$y_objetivo,
+    predictors = predictors
+  ),
+  algo = "xxhash64"
+)
+run_config <- list(
+  version = 2L,
+  mode = mode,
+  bayesqart_version = as.character(utils::packageVersion("BayesQArt")),
+  data_hash = data_hash,
+  taus = taus,
+  hp_qbart = hp_selected,
+  hp_qrf = qrf_hp,
+  window_obs = window_obs,
+  reestimation_step = reestimation_step,
+  index_test = index_test,
+  calibration_window = calibration_window,
+  calibration_min_obs = calibration_min_obs,
+  seed_base = seed_base
+)
 
-archivo_checkpoint <- file.path(ruta_out, "checkpoint_ventana.rds")
-
-config_actual <- list(paso_reest = paso_reest, hp_qbart = hp_qbart, taus = taus,
-                      modo = MODO)
-
-bloque_inicial <- 1L
-if (file.exists(archivo_checkpoint)) {
-  ckpt <- readRDS(archivo_checkpoint)
-  mismo_config <- isTRUE(all.equal(ckpt$config, config_actual))
-  if (mismo_config) {
-    pred_fina      <- ckpt$pred_fina
-    bloque_inicial <- ckpt$ultimo_bloque + 1L
-    cat("=== Checkpoint encontrado y compatible: reanudando desde el bloque",
-        bloque_inicial, "de", n_bloques, "===\n\n")
-  } else {
-    cat("=== Checkpoint encontrado pero con OTRA configuracion (paso_reest/hp_qbart/",
-        "modo distinto) -> se descarta y se arranca de cero ===\n\n")
-  }
-}
-
-if (bloque_inicial == 1L) {
-  pred_fina <- list(
-    random_walk  = matrix(NA_real_, n_or, n_tau),
-    quantile_reg = matrix(NA_real_, n_or, n_tau),
-    quantile_rf  = matrix(NA_real_, n_or, n_tau),
-    qbart        = matrix(NA_real_, n_or, n_tau)
+new_prediction_store <- function() {
+  methods <- c(
+    "random_walk", "quantile_reg", "quantile_rf",
+    "qbart_raw", "qbart_calibrated"
+  )
+  setNames(
+    lapply(methods, function(x) matrix(NA_real_, n_origins, n_tau)),
+    methods
   )
 }
 
-y_real <- datos_modelo$y_objetivo[origenes]
-
-cat("=== EVALUACION RECURSIVA POR BLOQUES (QBART):", n_or, "origenes,",
-    n_bloques, "bloques de hasta", paso_reest, "obs. ===\n\n")
-
-t_inicio_eval <- Sys.time()
-
-if (bloque_inicial <= n_bloques) {
-  for (b in bloque_inicial:n_bloques) {
-
-    idx_bloque <- ((b - 1) * paso_reest + 1):min(b * paso_reest, n_or)
-    t_bloque   <- origenes[idx_bloque]
-    t_ini      <- min(t_bloque)
-
-    idx_hasta <- 1:(t_ini - 1)
-    df_hasta  <- datos_modelo[idx_hasta, ]
-    x_hasta   <- as.matrix(df_hasta[, predictores])
-    y_hasta   <- df_hasta$y_objetivo
-
-    df_b <- datos_modelo[t_bloque, , drop = FALSE]
-    x_b  <- as.matrix(df_b[, predictores])
-
-    # -- BENCHMARK 1: Random Walk -- (identico al script original)
-    cuantiles_rw <- quantile(y_hasta, probs = taus, na.rm = TRUE)
-
-    # -- BENCHMARK 2: Regresion cuantilica lineal --
-    # Cruce de cuantiles posible (cada tau es un modelo separado en rq) ->
-    # se reordena por fila (Chernozhukov et al., 2010), como en el original.
-    modelo_rq  <- rq(formula_rq, tau = taus, data = df_hasta)
-    pred_rq_b  <- predict(modelo_rq, newdata = df_b)
-    pred_rq_b  <- t(apply(pred_rq_b, 1, sort))
-
-    # -- BENCHMARK 3: Quantile Random Forest --
-    modelo_qrf  <- quantregForest(x = x_hasta, y = y_hasta, ntree = 200)
-    pred_qrf_b  <- predict(modelo_qrf, newdata = x_b, what = taus)
-
-    # -- MODELO PRINCIPAL: QBART --
-    # predecir_qbart_grid() ajusta 3 modelos QBART (uno por tau) sobre la
-    # ventana x_hasta/y_hasta y predice el bloque x_b de una sola vez por tau.
-    # Ya viene con el anti-cruce aplicado (sort por fila) dentro del
-    # adaptador; se re-aplica aqui solo para dejar explicito -por pedido- el
-    # mismo tratamiento que a rq (es un sort() sobre datos ya ordenados: no
-    # cambia nada, pero documenta la intencion).
-    pred_qbart_b <- predecir_qbart_grid(x_hasta, y_hasta, x_b, taus, hp_qbart)
-    pred_qbart_b <- t(apply(pred_qbart_b, 1, sort))
-
-    pred_fina$random_walk[idx_bloque, ]  <- matrix(cuantiles_rw, nrow = length(idx_bloque),
-                                                    ncol = n_tau, byrow = TRUE)
-    pred_fina$quantile_reg[idx_bloque, ] <- pred_rq_b
-    pred_fina$quantile_rf[idx_bloque, ]  <- pred_qrf_b
-    pred_fina$qbart[idx_bloque, ]        <- pred_qbart_b
-
-    transcurrido_min <- as.numeric(difftime(Sys.time(), t_inicio_eval, units = "mins"))
-    n_hechos  <- b - bloque_inicial + 1
-    restante_min <- transcurrido_min / n_hechos * (n_bloques - b)
-    cat(sprintf("[bloque %2d/%2d] origenes %4d-%4d  (ventana hasta %s)  ->  %.1f min transcurridos, ~%.1f min restantes\n",
-                b, n_bloques, min(idx_bloque), max(idx_bloque),
-                as.character(df_hasta$fecha[nrow(df_hasta)]),
-                transcurrido_min, restante_min))
-
-    # --- checkpoint tras cada bloque ---
-    saveRDS(list(pred_fina = pred_fina, ultimo_bloque = b, config = config_actual),
-            archivo_checkpoint)
+predictions <- new_prediction_store()
+calibration_log <- data.frame()
+initial_block <- 1L
+if (file.exists(checkpoint_path)) {
+  checkpoint <- readRDS(checkpoint_path)
+  if (isTRUE(all.equal(checkpoint$config, run_config))) {
+    predictions <- checkpoint$predictions
+    calibration_log <- checkpoint$calibration_log
+    initial_block <- checkpoint$last_block + 1L
+    if (!is.null(checkpoint$rng_state)) .Random.seed <- checkpoint$rng_state
+    message("Checkpoint compatible: se reanuda en bloque ", initial_block)
+  } else {
+    message("Checkpoint incompatible: se inicia una corrida nueva.")
   }
 }
 
-cat("\nEvaluacion recursiva QBART completada. Tiempo total:",
-    round(as.numeric(difftime(Sys.time(), t_inicio_eval, units = "mins")), 1), "min\n\n")
-
-
-# ============================================================================
-# 9. RESULTADOS DE LA EVALUACION
-# ============================================================================
-# CAMBIO: reemplaza a la §8 del script original. Se elimina el qwCRPS (no
-# aplica a 3 tau puntuales) y se AGREGA cobertura empirica -pedida
-# explicitamente-: fraccion de retornos reales por debajo del cuantil
-# estimado; debe acercarse a tau (0.05, 0.50, 0.95) si el modelo esta
-# bien calibrado.
-
-## ---- 9.1 Quantile Score por metodo y cuantil ----
-tabla_quantile_score <- data.frame(
-  tau          = taus,
-  random_walk  = qs_metodo(pred_fina$random_walk,  y_real, taus),
-  quantile_reg = qs_metodo(pred_fina$quantile_reg, y_real, taus),
-  quantile_rf  = qs_metodo(pred_fina$quantile_rf,  y_real, taus),
-  qbart        = qs_metodo(pred_fina$qbart,        y_real, taus)
+formula_rq <- stats::as.formula(
+  paste("y_objetivo ~", paste(predictors, collapse = " + "))
 )
+evaluation_start <- Sys.time()
 
-cat("--- Quantile Score por metodo y cuantil (menor = mejor) ---\n")
-print(round(tabla_quantile_score, 5), row.names = FALSE)
+if (initial_block <= n_blocks) {
+  for (block in seq.int(initial_block, n_blocks)) {
+    positions <- seq.int(
+      (block - 1L) * reestimation_step + 1L,
+      min(block * reestimation_step, n_origins)
+    )
+    time_indices <- index_test[positions]
+    first_origin <- min(time_indices)
+    training_indices <- window_index(first_origin - 1L, window_obs)
+    training_data <- model_data[training_indices, , drop = FALSE]
+    block_data <- model_data[time_indices, , drop = FALSE]
+    x_history <- as.matrix(training_data[, predictors])
+    y_history <- training_data$y_objetivo
+    x_block <- as.matrix(block_data[, predictors])
 
-write.csv(tabla_quantile_score,
-          file.path(ruta_out, paste0("qbart_quantile_score_comparacion", sufijo_out, ".csv")),
-          row.names = FALSE)
+    rw_quantiles <- stats::quantile(y_history, taus, names = FALSE)
 
-## ---- 9.2 Cobertura empirica ----
-cobertura <- function(pred_matrix, y_real, taus) {
-  sapply(seq_along(taus), function(i) mean(y_real <= pred_matrix[, i]))
+    rq_fit <- quantreg::rq(formula_rq, tau = taus, data = training_data)
+    rq_prediction <- reordenar_cuantiles(
+      predict(rq_fit, newdata = block_data),
+      taus
+    )
+
+    set.seed(seed_base + 50000L + block)
+    qrf_fit <- quantregForest::quantregForest(
+      x = x_history,
+      y = y_history,
+      ntree = qrf_hp$ntree,
+      mtry = qrf_hp$mtry,
+      nodesize = qrf_hp$nodesize,
+      keep.inbag = FALSE
+    )
+    qrf_prediction <- predict(qrf_fit, newdata = x_block, what = taus)
+
+    hp_block <- hp_selected
+    hp_block$seed <- seed_base + 100000L * block
+    qbart_raw <- predecir_qbart_grid(
+      x_history,
+      y_history,
+      x_block,
+      taus,
+      hp_block,
+      rearrange = TRUE
+    )
+
+    completed <- which(
+      seq_len(n_origins) < min(positions) &
+        apply(is.finite(predictions$qbart_raw), 1L, all)
+    )
+    calibration_y <- c(y_validation, y_test[completed])
+    calibration_q <- rbind(
+      validation_raw,
+      predictions$qbart_raw[completed, , drop = FALSE]
+    )
+    offsets <- calibration_offsets(
+      calibration_y,
+      calibration_q,
+      taus,
+      window = calibration_window,
+      min_obs = calibration_min_obs
+    )
+    qbart_calibrated <- apply_quantile_calibration(
+      qbart_raw,
+      offsets,
+      taus
+    )
+
+    predictions$random_walk[positions, ] <- matrix(
+      rw_quantiles,
+      nrow = length(positions),
+      ncol = n_tau,
+      byrow = TRUE
+    )
+    predictions$quantile_reg[positions, ] <- rq_prediction
+    predictions$quantile_rf[positions, ] <- qrf_prediction
+    predictions$qbart_raw[positions, ] <- qbart_raw
+    predictions$qbart_calibrated[positions, ] <- qbart_calibrated
+
+    calibration_log <- rbind(
+      calibration_log,
+      data.frame(
+        block = block,
+        date = min(block_data$fecha),
+        tau = taus,
+        offset = offsets,
+        calibration_n = length(calibration_y)
+      )
+    )
+    saveRDS(
+      list(
+        predictions = predictions,
+        calibration_log = calibration_log,
+        last_block = block,
+        config = run_config,
+        rng_state = .Random.seed
+      ),
+      checkpoint_path
+    )
+
+    elapsed <- as.numeric(difftime(Sys.time(), evaluation_start, units = "mins"))
+    remaining <- elapsed / (block - initial_block + 1L) * (n_blocks - block)
+    message(
+      sprintf(
+        "[bloque %d/%d] %s | %.1f min, faltan ~%.1f min",
+        block,
+        n_blocks,
+        as.character(max(training_data$fecha)),
+        elapsed,
+        remaining
+      )
+    )
+  }
 }
 
-tabla_cobertura <- data.frame(
-  tau          = taus,
-  random_walk  = cobertura(pred_fina$random_walk,  y_real, taus),
-  quantile_reg = cobertura(pred_fina$quantile_reg, y_real, taus),
-  quantile_rf  = cobertura(pred_fina$quantile_rf,  y_real, taus),
-  qbart        = cobertura(pred_fina$qbart,        y_real, taus)
+utils::write.csv(
+  calibration_log,
+  file.path(output_dir, paste0("qbart_calibracion", suffix, ".csv")),
+  row.names = FALSE
 )
 
-cat("\n--- Cobertura empirica por metodo y cuantil (debe acercarse a 'tau') ---\n")
-print(round(tabla_cobertura, 4), row.names = FALSE)
+# -------------------------------------------------------------------------
+# Resultados
+# -------------------------------------------------------------------------
+score_table <- data.frame(tau = taus)
+coverage_table <- data.frame(tau = taus)
+for (method in names(predictions)) {
+  score_table[[method]] <- quantile_scores(predictions[[method]], y_test, taus)
+  coverage_table[[method]] <- quantile_coverage(
+    predictions[[method]],
+    y_test,
+    taus
+  )
+}
+relative_table <- score_table
+relative_table[, -1L] <- sweep(
+  relative_table[, -1L, drop = FALSE],
+  1L,
+  relative_table$random_walk,
+  "/"
+)
 
-write.csv(tabla_cobertura,
-          file.path(ruta_out, paste0("qbart_cobertura_empirica", sufijo_out, ".csv")),
-          row.names = FALSE)
+utils::write.csv(
+  score_table,
+  file.path(output_dir, paste0("qbart_quantile_score", suffix, ".csv")),
+  row.names = FALSE
+)
+utils::write.csv(
+  coverage_table,
+  file.path(output_dir, paste0("qbart_cobertura", suffix, ".csv")),
+  row.names = FALSE
+)
+utils::write.csv(
+  relative_table,
+  file.path(output_dir, paste0("qbart_score_relativo", suffix, ".csv")),
+  row.names = FALSE
+)
 
-## ---- 9.3 Desempenio relativo al Random Walk ----
-ratios <- tabla_quantile_score
-ratios[, -1] <- sweep(ratios[, -1], 1, ratios$random_walk, "/")
-cat("\n--- Quantile Score RELATIVO al Random Walk (<1 => mejor que el RW) ---\n")
-print(round(ratios, 4), row.names = FALSE)
+diagnostic_rows <- list()
+diagnostic_index <- 0L
+for (method in names(predictions)) {
+  for (tau_index in seq_along(taus)) {
+    tau <- taus[tau_index]
+    kupiec <- kupiec_test(y_test, predictions[[method]][, tau_index], tau)
+    dq <- dq_test(y_test, predictions[[method]][, tau_index], tau)
+    diagnostic_index <- diagnostic_index + 1L
+    diagnostic_rows[[diagnostic_index]] <- data.frame(
+      method = method,
+      tau = tau,
+      kupiec_statistic = kupiec["statistic"],
+      kupiec_p_value = kupiec["p_value"],
+      dq_statistic = dq["statistic"],
+      dq_p_value = dq["p_value"]
+    )
+  }
+}
+diagnostic_table <- do.call(rbind, diagnostic_rows)
+utils::write.csv(
+  diagnostic_table,
+  file.path(output_dir, paste0("qbart_backtests", suffix, ".csv")),
+  row.names = FALSE
+)
 
+dm_rows <- list()
+dm_index <- 0L
+for (method in c("qbart_raw", "qbart_calibrated")) {
+  for (tau_index in seq_along(taus)) {
+    dm <- dm_pinball_test(
+      y_test,
+      predictions[[method]][, tau_index],
+      predictions$quantile_rf[, tau_index],
+      taus[tau_index]
+    )
+    dm_index <- dm_index + 1L
+    dm_rows[[dm_index]] <- data.frame(
+      method = method,
+      benchmark = "quantile_rf",
+      tau = taus[tau_index],
+      statistic = dm["statistic"],
+      p_value = dm["p_value"],
+      mean_loss_difference = dm["mean_loss_difference"]
+    )
+  }
+}
+dm_table <- do.call(rbind, dm_rows)
+utils::write.csv(
+  dm_table,
+  file.path(output_dir, paste0("qbart_dm_vs_qrf", suffix, ".csv")),
+  row.names = FALSE
+)
 
-# ============================================================================
-# 10. DETERMINANTES: IMPORTANCIA POR CUANTIL (NATIVA EN QBART)
-# ============================================================================
-# CAMBIO: reemplaza a las §9 y §10 completas del script original (el
-# desglose media/varianza + la dependencia parcial bayesiana con
-# reconstruir_draws()). QBART da la importancia por cuantil DIRECTAMENTE:
-# como cada tau es su propio arbol-suma, la frecuencia de uso de una variable
-# en los arboles de tau=0.05 vs. tau=0.50 vs. tau=0.95 YA ES la respuesta a
-# "¿los determinantes de las colas difieren de los del centro?", sin
-# necesidad de dependencia parcial simulada.
+message("=== Quantile score ===")
+print(round(score_table, 6), row.names = FALSE)
+message("=== Cobertura ===")
+print(round(coverage_table, 4), row.names = FALSE)
 
-idx_det <- 1:corte_val
-x_det   <- as.matrix(datos_modelo[idx_det, predictores])
-y_det   <- datos_modelo$y_objetivo[idx_det]
+# -------------------------------------------------------------------------
+# Determinantes por percentil
+# -------------------------------------------------------------------------
+determinant_indices <- window_index(validation_end, window_obs)
+x_determinants <- as.matrix(model_data[determinant_indices, predictors])
+y_determinants <- model_data$y_objetivo[determinant_indices]
+importance_table <- importancia_qbart_por_cuantil(
+  x_determinants,
+  y_determinants,
+  taus,
+  hp_selected
+)
+utils::write.csv(
+  importance_table,
+  file.path(output_dir, paste0("qbart_importancia_por_tau", suffix, ".csv")),
+  row.names = FALSE
+)
 
-cat("\n=== Determinantes QBART (importancia por cuantil), ", length(idx_det),
-    "obs. ===\n")
+tau_columns <- vapply(taus, qbart_tau_name, character(1))
+heat_data <- importance_table |>
+  dplyr::select(variable, dplyr::all_of(tau_columns)) |>
+  tidyr::pivot_longer(
+    -variable,
+    names_to = "quantile",
+    values_to = "importance"
+  ) |>
+  dplyr::group_by(variable) |>
+  dplyr::mutate(
+    relative_importance = ifelse(
+      max(importance) > 0,
+      importance / max(importance),
+      0
+    )
+  ) |>
+  dplyr::ungroup()
 
-tabla_importancia_qbart <- importancia_qbart_por_cuantil(x_det, y_det, taus, hp_qbart)
-
-cat("\n--- Importancia por cuantil (frecuencia de uso en los arboles de cada tau) ---\n")
-print(head(tabla_importancia_qbart[order(-tabla_importancia_qbart[[paste0("tau_", taus[1])]]), ], 15),
-      row.names = FALSE, digits = 3)
-
-write.csv(tabla_importancia_qbart,
-          file.path(ruta_out, paste0("qbart_importancia_por_cuantil", sufijo_out, ".csv")),
-          row.names = FALSE)
-
-## ---- 10.1 Heatmap de importancia por cuantil ----
-cols_tau <- paste0("tau_", taus)
-heat <- tabla_importancia_qbart %>%
-  select(variable, all_of(cols_tau)) %>%
-  pivot_longer(-variable, names_to = "cuantil", values_to = "importancia") %>%
-  group_by(variable) %>%
-  mutate(importancia_rel = importancia / max(importancia)) %>%
-  ungroup()
-
-g_heat <- ggplot(heat, aes(x = cuantil, y = reorder(variable, importancia_rel),
-                           fill = importancia_rel)) +
+importance_plot <- ggplot(
+  heat_data,
+  aes(
+    x = quantile,
+    y = reorder(variable, relative_importance),
+    fill = relative_importance
+  )
+) +
   geom_tile(color = "white") +
-  scale_fill_gradient(low = "white", high = "firebrick") +
-  labs(title = "QBART: importancia de cada predictor POR CUANTIL",
-       subtitle = "Frecuencia de uso en los arboles, normalizada por variable",
-       x = "Cuantil", y = NULL, fill = "Importancia\nrelativa") +
-  theme_minimal()
+  scale_fill_gradient(low = "#f7f3e8", high = "#a3261f") +
+  labs(
+    title = "QBART: uso de predictores por percentil",
+    subtitle = paste(
+      "Nacimientos de ramas aceptados (incluye burn-in),",
+      "normalizados dentro de variable"
+    ),
+    x = "Percentil",
+    y = NULL,
+    fill = "Importancia\nrelativa"
+  ) +
+  theme_minimal(base_family = "serif")
+ggsave(
+  file.path(
+    figure_dir,
+    paste0("qbart_importancia_por_tau", suffix, ".png")
+  ),
+  importance_plot,
+  width = 8,
+  height = 10
+)
 
-ggsave(file.path(ruta_figs, paste0("qbart_importancia_por_cuantil_heatmap", sufijo_out, ".png")),
-       g_heat, width = 8, height = 9)
-
-
-# ============================================================================
-# 11. RESUMEN FINAL
-# ============================================================================
-cat("\n============================================================\n")
-cat("RESUMEN QBART (MODO:", toupper(MODO), ")\n")
-cat("  Hiperparametros: kappa =", hp_qbart$kappa, "| m =", hp_qbart$m,
-    "| burn =", hp_qbart$burn, "| ndpost =", hp_qbart$ndpost, "\n")
-cat("  paso_reest =", paso_reest, "| Origenes evaluados:", n_or, "\n")
-cat("  Mejor metodo por pinball promedio:",
-    names(tabla_quantile_score)[-1][which.min(colMeans(tabla_quantile_score[-1]))], "\n")
-cat("\nArchivos guardados en", ruta_out, ":\n")
-cat("    - qbart_tuneo_grilla", sufijo_out, ".csv\n", sep = "")
-cat("    - qbart_quantile_score_comparacion", sufijo_out, ".csv\n", sep = "")
-cat("    - qbart_cobertura_empirica", sufijo_out, ".csv\n", sep = "")
-cat("    - qbart_importancia_por_cuantil", sufijo_out, ".csv\n", sep = "")
-cat("    - checkpoint_ventana.rds (progreso de la ventana expansiva)\n")
-cat("Figura guardada en", ruta_figs, ":\n")
-cat("    - qbart_importancia_por_cuantil_heatmap", sufijo_out, ".png\n", sep = "")
-if (MODO != "completa") {
-  cat("\n*** Esto fue MODO =", paste0("'", MODO, "'"), ". Cambia MODO <- \"completa\" en la",
-      "§6 para la corrida completa (~60h estimadas; ver cabecera del script). ***\n")
+message("=== Resumen ===")
+message("Motor QBART: ", hp_selected$engine)
+message("Ventana: ", window_obs, " | paso: ", reestimation_step)
+for (tau in taus) {
+  hp_tau <- qbart_hp_for_tau(hp_selected, tau)
+  message(
+    sprintf(
+      "tau=%.2f: kappa=%g, m=%d, min_obs=%d, maxdepth=%d",
+      tau,
+      hp_tau$kappa,
+      hp_tau$m,
+      hp_tau$min_obs,
+      hp_tau$maxdepth
+    )
+  )
 }
-cat("============================================================\n")
+message("Resultados guardados en: ", output_dir)
+if (mode != "completa") {
+  message(
+    "La corrida no es final. Use QBART_MODE=completa despues de superar ",
+    "las pruebas sinteticas."
+  )
+}

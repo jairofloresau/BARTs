@@ -15,6 +15,9 @@ Thumbs.db
 outputs/*
 !outputs/.gitkeep
 
+# Compilaciones y revisiones temporales
+tmp/
+
 # Datos opcionales pesados (descomenta si quieres ignorarlos)
 # data/raw/*
 # !data/raw/.gitkeep

@@ -1,6 +1,8 @@
 ############################################################################
-##  BayesQArt: Bayesian Quantile Additive Regression Trees
-##  Reimplementacion en R puro del metodo de Kindo, Wang, Hanson & Pena (2016)
+##  BayesQArt: motor local EXPERIMENTAL
+##  Reimplementacion aproximada en R puro del metodo de Kindo et al. (2016).
+##  No usar para resultados de investigacion: el flujo principal exige el
+##  kernel C++ oficial. Este archivo se conserva para desarrollo y docencia.
 ##  "Bayesian quantile additive regression trees", arXiv:1607.02676
 ##
 ##  Aplicacion: pronostico e identificacion de determinantes de los retornos
